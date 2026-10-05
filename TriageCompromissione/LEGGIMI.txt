@@ -1,0 +1,245 @@
+﻿TRIAGE COMPROMISSIONE WINDOWS - plugin per Autopsy
+Versione 1.0
+======================================================================
+
+A CHE COSA SERVE
+
+Esegue su un'origine dati di Autopsy (immagine del disco oppure file
+logici) i controlli della checklist "Questa macchina Windows è
+compromessa?" e in pochi minuti dà un verdetto:
+
+  COMPROMISSIONE PROBABILE   la macchina merita l'analisi forense completa
+  DA VERIFICARE              c'è qualcosa da chiarire, oppure mancano dati
+  NESSUN INDIZIO             i controlli fatti non hanno trovato nulla
+
+Legge da solo, senza altri moduli di Autopsy e senza programmi esterni:
+registro (SYSTEM, SOFTWARE, SAM, NTUSER.DAT, UsrClass.dat, Amcache.hve,
+con i transaction log), registri eventi (.evtx), Prefetch, attività
+pianificate, cartelle di esecuzione automatica, repository WMI,
+CryptnetUrlCache, cronologia di PowerShell, log di AnyDesk, TeamViewer,
+LogMeIn e Pulseway, cronologia dei rilevamenti di Defender, Cestino.
+Lavora in sola lettura: non modifica l'origine dati.
+
+
+INSTALLAZIONE (Windows)
+
+1. In Autopsy: menu Tools > Python Plugins. Si apre la cartella dei moduli
+   Python (di solito %APPDATA%\autopsy\python_modules).
+2. Copia lì dentro l'intera cartella TriageCompromissione, così com'è.
+   Deve risultare ...\python_modules\TriageCompromissione\ con dentro
+   TriageCompromissione.py e i file tc_*.py.
+3. Chiudi e riapri Autopsy.
+
+Per aggiornare: sostituisci la cartella e riavvia Autopsy. Il riavvio serve
+anche dopo ogni modifica a un file tc_*.py: da sé Autopsy ricarica
+soltanto il file principale.
+
+
+USO
+
+1. Apri o crea un caso e aggiungi l'origine dati (Add Data Source):
+   - un'immagine del disco (E01, dd, vmdk, vhd...), oppure
+   - "Logical Files": la cartella di una raccolta di triage (KAPE, CyLR,
+     Velociraptor...) o una copia della cartella Windows. Se aggiungi file
+     logici spunta le caselle delle date (modifica, creazione, accesso),
+     altrimenti il controllo sui file recenti non ha orari su cui lavorare.
+2. Nell'elenco dei moduli di ingest spunta "Triage compromissione
+   Windows". Non ha bisogno degli altri moduli: per il solo triage puoi
+   lasciarli tutti spenti, è il modo più veloce.
+3. Impostazioni del modulo (pannello a destra):
+   - Giorni da considerare "recenti" (predefinito 30). Si contano
+     all'indietro dall'ultima attività della macchina, non da oggi.
+   - Accesso remoto autorizzato (RMM): i nomi degli strumenti di accesso
+     remoto autorizzati, separati da virgola (per esempio: TeamViewer,
+     AnyDesk). Quelli indicati restano nel report come contesto ma non
+     pesano sul verdetto. Il nome deve essere una parola intera del nome
+     dello strumento; un nome che non corrisponde a nessuno strumento
+     conosciuto viene segnalato nel report.
+   Le impostazioni compaiono a destra quando selezioni il modulo
+   nell'elenco, e restano memorizzate per le volte successive.
+4. Avvia. Nelle prove ogni macchina ha richiesto da pochi secondi a mezzo
+   minuto; un registro Security da 1 GB aggiunge circa due minuti.
+
+Se l'origine contiene più installazioni di Windows (più volumi, più
+macchine nella stessa cartella) ognuna ha il suo verdetto e il suo report.
+Le cartelle Windows.old vengono ignorate.
+
+
+DOVE SONO I RISULTATI
+
+- Messaggio nella posta di ingest (la busta in alto a destra): verdetto,
+  numero di segnali, percorso del report.
+- Albero di Autopsy, Analysis Results:
+    "Triage compromissione: verdetto"   una voce per macchina
+    "Triage compromissione: segnali"    una voce per segnale, collegata al
+                                        file da cui viene (hive, registro
+                                        eventi, .pf, ...)
+  I segnali decisivi hanno punteggio Notable, quelli da confermare Likely
+  Notable: compaiono anche nelle viste per punteggio.
+- Report: <cartella del caso>\Reports\TriageCompromissione\
+    Triage_<computer>_<data>.html   il report completo
+    Triage_<computer>_<data>.csv    i soli segnali (separatore ; )
+  Il report è elencato anche nell'albero, sotto Reports.
+
+Nel report gli orari sono sempre UTC. Nell'albero di Autopsy seguono
+invece il fuso orario scelto in Tools > Options > View.
+
+Se rilanci il modulo sulla stessa origine i risultati vecchi vengono
+sostituiti dai nuovi. Fanno eccezione quelli a cui hai messo un tag: quelli
+restano. I report delle esecuzioni precedenti non vengono cancellati:
+restano nella cartella e sotto Reports, ognuno con la sua data.
+
+
+COME SI LEGGE
+
+Ogni segnale ha un peso:
+
+  Decisivo        non ha una spiegazione innocente credibile (Mimikatz
+                  eseguito, servizio con le firme di smbexec, registro
+                  Security svuotato, backdoor "sticky keys"...)
+  Da confermare   lo fa chi attacca ma anche un amministratore (PsExec,
+                  account creato da riga di comando, RDP da un indirizzo
+                  pubblico, uno strumento di assistenza remota...)
+  Solo contesto   non pesa sul verdetto
+
+e una famiglia: Accessi, Account, Persistenza, Programmi eseguiti,
+Strumenti d'attacco, Strumenti a doppio uso, Esecuzione remota, Accesso
+remoto (RMM), File, Anti-forensics, Antivirus, Esfiltrazione e tunnel.
+
+Il verdetto:
+- basta UN segnale decisivo                       -> Compromissione probabile
+- segnali da confermare in DUE o più famiglie     -> Compromissione probabile
+- segnali da confermare in una sola famiglia      -> Da verificare
+- nessun segnale ma almeno un AVVISO di copertura -> Da verificare
+- altrimenti                                      -> Nessun indizio
+
+Gli AVVISI dicono che cosa il triage non ha potuto vedere: registri eventi
+o hive assenti, danneggiati o troppo corti, file illeggibili, registri che
+si fermano prima degli altri artefatti, controlli interrotti. Un "nessun
+indizio" vale solo se non ci sono avvisi: per questo un avviso da solo
+porta a "Da verificare". Le NOTE sono osservazioni che non toccano il
+verdetto (orologio spostato, date dei file che sono quelle della copia...).
+
+Lo stesso comando pesa in modo diverso secondo dove lo si trova. In una
+voce che parte da sola (servizio, attività pianificata, chiave Run,
+sottoscrizione WMI) o incollato nella finestra Esegui, un comando
+codificato o che scarica ed esegue codice è decisivo. Tra i comandi
+soltanto eseguiti (eventi 4688, Sysmon, PowerShell, cronologia della
+console) è da confermare, perché gli strumenti di gestione fanno cose
+simili ogni giorno; resta decisivo solo ciò che non ha spiegazioni
+innocenti (uno strumento d'attacco, l'output su \\127.0.0.1 di Impacket,
+una reverse shell...).
+
+"Recente" non vuol dire vicino a oggi. La finestra si conta all'indietro
+da un momento di riferimento: il più vecchio tra l'ultimo evento scritto
+nel registro Security e l'ultimo scritto nel System (se mancano, gli altri
+registri e l'ora dell'ultimo spegnimento). Il report dice qual è.
+
+Ogni segnale vale solo finché l'IT non lo spiega. Il triage serve a
+decidere se approfondire: non sostituisce l'analisi.
+
+
+I 41 CONTROLLI SU UN'IMMAGINE
+
+I controlli da 2 a 7 della checklist riguardano dati volatili (utenti
+collegati, processi, connessioni, cache DNS, sessioni SMB): su un'immagine
+del disco non esistono e il report li indica come "Non verificabile". Per
+quelli serve il triage dal vivo oppure un dump della RAM analizzato con
+Volatility (il modulo Volatility di Autopsy lavora sul dump, non
+sull'immagine del disco, ed è indipendente da questo plugin).
+Tutti gli altri controlli vengono eseguiti; il report ha una tabella con
+l'esito di ciascuno.
+
+I segnali con l'etichetta "regola in più" vengono da regole note che non
+fanno parte delle 32 guide su cui è costruita la checklist (named pipe di
+Meterpreter, sticky keys, esclusioni di Defender, cronologia di
+PowerShell, inoltro di porta, account nascosti...).
+
+
+LIMITI DA CONOSCERE
+
+- ShimCache e AmCache provano che un file esisteva, non che è stato
+  eseguito: il report lo dice voce per voce.
+- Le sottoscrizioni WMI vengono cercate nel repository anche tra gli
+  oggetti cancellati: una voce trovata può non essere più attiva.
+- Le copie shadow non vengono aperte: viene solo detto se ci sono.
+- I transaction log del registro nel formato vecchio (prima di Windows
+  8.1) non vengono applicati.
+- Un indirizzo IPv6 non viene mai considerato "pubblico".
+- I comandi offuscati con ^ o "" in mezzo alle parole vengono rimessi in
+  chiaro, i comandi PowerShell codificati vengono decodificati; forme di
+  offuscamento più elaborate no.
+- Le righe di comando si vedono solo se la macchina le registrava (evento
+  4688 con la riga di comando, Sysmon, registri di PowerShell): di serie
+  Windows non lo fa. Senza, restano i controlli su registro, file,
+  servizi, attività, Prefetch e accessi.
+- Con una raccolta parziale di file il verdetto più frequente è "Da
+  verificare", con gli avvisi che dicono che cosa manca.
+- I file cancellati vengono usati solo dove servono (file residui di
+  Impacket, strumenti noti cercati per nome).
+- I nomi cercati sono quelli degli strumenti noti. Un eseguibile
+  rinominato si riconosce solo dalle informazioni di versione, che vengono
+  lette per i 400 eseguibili più recenti delle cartelle di appoggio
+  (Download, Desktop, Public, Temp, ProgramData...).
+
+
+ADATTARE GLI ELENCHI
+
+Tutte le regole stanno in tc_regole.py, in elenchi commentati:
+
+  RMM                         strumenti di accesso remoto e come si
+                              riconoscono
+  _RX_ATTACCO,                nomi degli strumenti d'attacco (decisivi)
+  _NOMI_ATTACCO_ESATTI
+  _RX_DOPPIO_USO,             strumenti a doppio uso (da confermare)
+  _NOMI_DOPPIO_ESATTI
+  _RX_PS_ATTACCO              script e comandi d'attacco di PowerShell
+  COMANDI                     comandi che pesano da soli, con il loro peso
+  _NOMI_ANTIVIRUS             servizi e processi degli antivirus
+  _HOST_PRODUTTORI            siti da cui scaricare un programma di
+                              installazione è normale
+  _NOTI                       script di installazione noti (Chocolatey,
+                              Scoop...)
+  _PAROLE_NEI_NOMI            parole che distinguono un nome vero da otto
+                              lettere a caso
+
+Dopo una modifica riavvia Autopsy. I file devono restare in ASCII puro:
+le lettere accentate si scrivono con la sequenza \uXXXX (per esempio
+\u00e8 al posto di "è"). Con Jython 2.7 è il modo più sicuro.
+
+
+COMPATIBILITÀ E PROVE FATTE
+
+- Autopsy 4.19 o successivo (usa i risultati di analisi e i punteggi
+  introdotti con la 4.19).
+- Il motore è stato provato con Jython 2.7.2 (Autopsy 4.19-4.21) e 2.7.4
+  (Autopsy 4.22-4.23), con risultati identici, su artefatti veri di sette
+  macchine sane e compromesse, su una raccolta di registri eventi di
+  attacchi e su copie danneggiate degli stessi file.
+- Il plugin completo è stato provato dentro Autopsy 4.21.0 e 4.23.1: da
+  riga di comando su un'immagine del disco e su file logici, e
+  dall'interfaccia grafica su un'immagine (finestra dei moduli con il
+  pannello delle impostazioni, analisi, posta di ingest, albero dei
+  risultati, elenco dei report). Le due versioni danno gli stessi segnali.
+- Queste prove sono state fatte su Linux. NON è stato provato Autopsy su
+  Windows: il programma è lo stesso, ma caratteri e dimensioni delle
+  finestre possono cambiare. Non sono state provate dall'inizio alla fine
+  le versioni 4.19, 4.20 e 4.22: per quelle è stato controllato nel
+  sorgente di Autopsy e di The Sleuth Kit che esistano le funzioni usate
+  dal plugin. Alla prima esecuzione controlla che il modulo compaia
+  nell'elenco e che il report venga creato.
+
+
+SE QUALCOSA NON VA
+
+- Il modulo non compare nell'elenco: la cartella non è al posto giusto
+  (deve essere python_modules\TriageCompromissione\) oppure Autopsy non è
+  stato riavviato.
+- "Triage non riuscito": il messaggio nella posta di ingest riporta
+  l'errore. Il dettaglio è nel log di Autopsy (Help > Open Log Folder,
+  file autopsy.log.0, cerca "Triage").
+- "Nessun artefatto di Windows": nell'origine non c'è una cartella
+  Windows\System32\config né file .evtx o hive riconoscibili.
+- Il report segnala controlli interrotti da un errore: gli altri controlli
+  sono stati eseguiti lo stesso; il verdetto diventa al più "Da
+  verificare" se non ci sono segnali.
