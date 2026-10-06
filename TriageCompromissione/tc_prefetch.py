@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_prefetch - Lettore dei file Prefetch (.pf) in Python 2.7 puro, per il
 plugin "Triage compromissione" di Autopsy.
@@ -18,6 +19,7 @@ Uso:
 import struct
 
 from tc_base import leggi, filetime_a_epoch, decodifica16
+from tc_lingua import tr
 
 
 class ErrorePrefetch(Exception):
@@ -60,7 +62,7 @@ def decomprimi_xpress_huffman(dati, dim_uscita, limite=None):
             ripeti = 1 << (15 - l)
             for simbolo in per_lunghezza[l]:
                 if indice + ripeti > 32768:
-                    raise ErrorePrefetch('tabella di Huffman non valida')
+                    raise ErrorePrefetch(tr(u'tabella di Huffman non valida'))
                 tabella[indice:indice + ripeti] = [simbolo] * ripeti
                 indice += ripeti
         pos += 256
@@ -76,7 +78,7 @@ def decomprimi_xpress_huffman(dati, dim_uscita, limite=None):
         while len(uscita) < fine_blocco:
             simbolo = tabella[bit >> 17]
             if simbolo < 0:
-                raise ErrorePrefetch('codice di Huffman non previsto dalla tabella')
+                raise ErrorePrefetch(tr(u'codice di Huffman non previsto dalla tabella'))
             l = lunghezze[simbolo]
             bit = (bit << l) & 0xFFFFFFFF
             extra -= l
@@ -106,7 +108,7 @@ def decomprimi_xpress_huffman(dati, dim_uscita, limite=None):
                                 (ingresso[pos + 2] << 16) | (ingresso[pos + 3] << 24))
                         pos += 4
                     if lung < 15:
-                        raise ErrorePrefetch('dati compressi non validi')
+                        raise ErrorePrefetch(tr(u'dati compressi non validi'))
                     lung -= 15
                 lung += 15
             lung += 3
@@ -125,7 +127,7 @@ def decomprimi_xpress_huffman(dati, dim_uscita, limite=None):
                 distanza = 1
             inizio = len(uscita) - distanza
             if inizio < 0:
-                raise ErrorePrefetch('riferimento prima dell\'inizio')
+                raise ErrorePrefetch(tr(u'riferimento prima dell\'inizio'))
             if distanza >= lung:
                 uscita.extend(uscita[inizio:inizio + lung])
             else:
@@ -146,7 +148,7 @@ class Prefetch(object):
             self.compresso = True
             dim = leggi('<I', dati, 4)[0]
             if dim > 50 * 1024 * 1024:
-                raise ErrorePrefetch('dimensione dichiarata non credibile')
+                raise ErrorePrefetch(tr(u'dimensione dichiarata non credibile'))
             inizio = 8
             if ord(dati[3]) & 0xF0:
                 # con il bit di checksum ci sono 4 byte di CRC in piu'
@@ -164,7 +166,7 @@ class Prefetch(object):
             if len(dati) < dim:
                 self.completo = limite is not None and len(dati) >= limite
         if len(dati) < 0x100 or dati[4:8] != 'SCCA':
-            raise ErrorePrefetch('non e\' un file Prefetch')
+            raise ErrorePrefetch(tr(u'non \u00e8 un file Prefetch'))
         self.versione = leggi('<I', dati, 0)[0]
         nome = decodifica16(dati[0x10:0x10 + 60])
         fine = nome.find(u'\x00')

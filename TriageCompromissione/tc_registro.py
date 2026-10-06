@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_registro - Lettore degli hive del registro di Windows (formato "regf")
 in Python 2.7 puro, per il plugin "Triage compromissione" di Autopsy.
@@ -20,6 +21,7 @@ modifiche in sospeso vengono applicate in memoria prima della lettura.
 import struct
 
 from tc_base import leggi, filetime_a_epoch, testo_sid, esadecimale, decodifica16, ERRORI
+from tc_lingua import tr
 
 BASE = 0x1000
 
@@ -103,7 +105,7 @@ class Chiave(object):
         b = hive.b
         p = hive._cella(offset)
         if b[p:p + 2] != 'nk':
-            raise ErroreRegistro('cella nk non valida a %x' % offset)
+            raise ErroreRegistro(tr(u'cella nk non valida a %x') % offset)
         self.hive = hive
         self.pos = offset
         flags, ft = leggi('<HQ', b, p + 2)
@@ -262,7 +264,7 @@ class Hive(object):
         """dati: il contenuto del file dell'hive. log: lista con il contenuto
         dei transaction log (.LOG1, .LOG2), usati solo se l'hive e' sporco."""
         if len(dati) < BASE + 32 or dati[:4] != 'regf':
-            raise ErroreRegistro('non e\' un hive del registro')
+            raise ErroreRegistro(tr(u'non \u00e8 un hive del registro'))
         self.b = dati
         self.seq1, self.seq2 = leggi('<II', dati, 4)
         self.pos_radice = leggi('<I', dati, 0x24)[0]
@@ -287,7 +289,7 @@ class Hive(object):
         """Posizione nel file dei dati di una cella (dopo i 4 byte di dimensione)."""
         p = BASE + offset
         if offset == 0xFFFFFFFF or p + 4 > len(self.b):
-            raise ErroreRegistro('offset fuori dal file: %x' % offset)
+            raise ErroreRegistro(tr(u'offset fuori dal file: %x') % offset)
         return p + 4
 
     def _dim_cella(self, offset):
@@ -318,7 +320,7 @@ class Hive(object):
                     self.danneggiate.add(sub)
                     continue
         else:
-            raise ErroreRegistro('lista di sottochiavi non riconosciuta')
+            raise ErroreRegistro(tr(u'lista di sottochiavi non riconosciuta'))
 
     def blocchi(self):
         """Controlla la struttura dell'hive senza leggerne le chiavi: (numero
@@ -348,7 +350,7 @@ class Hive(object):
         b = self.b
         p = self._cella(offset)
         if b[p:p + 2] != 'vk':
-            raise ErroreRegistro('cella vk non valida')
+            raise ErroreRegistro(tr(u'cella vk non valida'))
         lung_nome, dim, pos_dati, tipo, flags = leggi('<HIIIH', b, p + 2)
         grezzo = b[p + 20: p + 20 + lung_nome]
         if flags & 1:

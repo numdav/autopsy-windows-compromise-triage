@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_regole - Regole di valutazione del plugin "Triage compromissione".
 
@@ -11,27 +12,65 @@ import binascii
 import re
 
 from tc_base import decodifica16, ERRORI
+from tc_lingua import tr, N_
 
 # Pesi dei segnali
 DECISIVO = 3        # basta da solo per trattare la macchina come compromessa
 DA_CONFERMARE = 2   # conta se almeno due famiglie diverse lo segnalano
 INFORMATIVO = 1     # solo contesto: compare nel report, non pesa sul verdetto
 
-NOME_PESO = {DECISIVO: u'Decisivo', DA_CONFERMARE: u'Da confermare', INFORMATIVO: u'Informativo'}
 
-# Famiglie di segnali (per il verdetto contano le famiglie diverse)
-F_ACCESSI = u'Accessi'
-F_ACCOUNT = u'Account'
-F_PERSISTENZA = u'Persistenza'
-F_ESECUZIONE = u'Programmi eseguiti'
-F_STRUMENTI = u'Strumenti d\'attacco'
-F_DOPPIO_USO = u'Strumenti a doppio uso'
-F_LATERALE = u'Esecuzione remota'
-F_RMM = u'Accesso remoto (RMM)'
-F_FILE = u'File'
-F_ANTIFORENSE = u'Anti-forensics'
-F_ANTIVIRUS = u'Antivirus'
-F_ESFILTRAZIONE = u'Esfiltrazione e tunnel'
+
+class _Nomi(object):
+    '''Nomi da mostrare, restituiti nella lingua dell'analisi in corso. Si
+    usa come un dizionario: NOME_PESO[peso], NOME_PESO.get(peso, u'').'''
+
+    def __init__(self, nomi):
+        self._nomi = nomi
+
+    def __getitem__(self, chiave):
+        return tr(self._nomi[chiave])
+
+    def get(self, chiave, predefinito=None):
+        if chiave in self._nomi:
+            return tr(self._nomi[chiave])
+        return predefinito
+
+    def __contains__(self, chiave):
+        return chiave in self._nomi
+
+    def __iter__(self):
+        return iter(self._nomi)
+
+    def __len__(self):
+        return len(self._nomi)
+
+    def keys(self):
+        return self._nomi.keys()
+
+    def values(self):
+        return [tr(v) for v in self._nomi.values()]
+
+    def items(self):
+        return [(k, tr(v)) for k, v in self._nomi.items()]
+
+
+NOME_PESO = _Nomi({DECISIVO: N_(u'Decisivo'), DA_CONFERMARE: N_(u'Da confermare'), INFORMATIVO: N_(u'Informativo')})
+
+# Famiglie di segnali (per il verdetto contano le famiglie diverse). Nei
+# ragionamenti si usa sempre il nome italiano; chi lo mostra lo traduce con tr().
+F_ACCESSI = N_(u'Accessi')
+F_ACCOUNT = N_(u'Account')
+F_PERSISTENZA = N_(u'Persistenza')
+F_ESECUZIONE = N_(u'Programmi eseguiti')
+F_STRUMENTI = N_(u'Strumenti d\'attacco')
+F_DOPPIO_USO = N_(u'Strumenti a doppio uso')
+F_LATERALE = N_(u'Esecuzione remota')
+F_RMM = N_(u'Accesso remoto (RMM)')
+F_FILE = N_(u'File')
+F_ANTIFORENSE = N_(u'Anti-forensics')
+F_ANTIVIRUS = N_(u'Antivirus')
+F_ESFILTRAZIONE = N_(u'Esfiltrazione e tunnel')
 
 
 # --------------------------------------------------------------------------
@@ -196,17 +235,17 @@ def strumento(nome_file):
         return 0, u''
     intero = con_estensione(nome)
     if intero in _NOMI_ATTACCO_ESATTI:
-        return DECISIVO, u'strumento d\'attacco'
+        return DECISIVO, tr(u'strumento d\'attacco')
     m = _RX_ATTACCO.search(nome)
     if m is not None:
-        return DECISIVO, u'strumento d\'attacco (%s)' % m.group(1).lower()
+        return DECISIVO, tr(u'strumento d\'attacco (%s)') % m.group(1).lower()
     if intero in _BINARI_DI_SISTEMA:
-        return INFORMATIVO, u'binario di Windows spesso abusato'
+        return INFORMATIVO, tr(u'binario di Windows spesso abusato')
     if intero in _NOMI_DOPPIO_ESATTI:
-        return DA_CONFERMARE, u'strumento a doppio uso'
+        return DA_CONFERMARE, tr(u'strumento a doppio uso')
     m = _RX_DOPPIO_USO.search(nome)
     if m is not None:
-        return DA_CONFERMARE, u'strumento a doppio uso (%s)' % m.group(1).lower()
+        return DA_CONFERMARE, tr(u'strumento a doppio uso (%s)') % m.group(1).lower()
     return 0, u''
 
 
@@ -271,10 +310,10 @@ def strumento_nominato(testo, dal_principio=False):
     if forse:
         m = _RX_ATTACCO.search(testo)
         if m is not None:
-            return DECISIVO, u'strumento d\'attacco (%s)' % m.group(1).lower()
+            return DECISIVO, tr(u'strumento d\'attacco (%s)') % m.group(1).lower()
         m = _RX_PS_ATTACCO.search(testo)
         if m is not None:
-            return DECISIVO, u'script o comando d\'attacco (%s)' % m.group(1).lower()
+            return DECISIVO, tr(u'script o comando d\'attacco (%s)') % m.group(1).lower()
     doppio = u''
     comando = dal_principio
     for m in (_RX_PAROLA.finditer(testo) if _RX_NOME_ESATTO.search(testo) is not None else ()):
@@ -288,16 +327,16 @@ def strumento_nominato(testo, dal_principio=False):
         if base.endswith(u'.exe') or (comando and u'.' not in base):
             intero = con_estensione(base)
             if intero in _NOMI_ATTACCO_ESATTI:
-                return DECISIVO, u'strumento d\'attacco (%s)' % intero
+                return DECISIVO, tr(u'strumento d\'attacco (%s)') % intero
             if intero in _NOMI_DOPPIO_ESATTI and not doppio:
                 doppio = intero
         comando = False
     if doppio:
-        return DA_CONFERMARE, u'strumento a doppio uso (%s)' % doppio
+        return DA_CONFERMARE, tr(u'strumento a doppio uso (%s)') % doppio
     if forse:
         m = _RX_DOPPIO_USO.search(testo)
         if m is not None:
-            return DA_CONFERMARE, u'strumento a doppio uso (%s)' % m.group(1).lower()
+            return DA_CONFERMARE, tr(u'strumento a doppio uso (%s)') % m.group(1).lower()
     return 0, u''
 
 
@@ -913,12 +952,12 @@ def crea_avvio(nome, arg):
         m = _RX_TR.search(u' ' + arg)
         if m is None:
             return None
-        return u'un\'attivit\u00e0 pianificata', _valore_da(u' ' + arg, m.end())
+        return tr(u'un\'attivit\u00e0 pianificata'), _valore_da(u' ' + arg, m.end())
     if nome == u'sc.exe':
         m = _RX_BINPATH.search(arg)
         if m is None or _RX_SC_CREA.search(arg[:m.start()]) is None:
             return None
-        return u'un servizio', _valore_da(arg, m.end())
+        return tr(u'un servizio'), _valore_da(arg, m.end())
     if nome == u'reg.exe':
         m = _RX_REG_ADD.match(arg)
         if m is None:
@@ -931,7 +970,7 @@ def crea_avvio(nome, arg):
                 d = _RX_REG_DATO.search(arg, m.end())
                 if d is None:
                     return None
-                return u'una voce di avvio automatico nel registro', _valore_da(arg, d.end())
+                return tr(u'una voce di avvio automatico nel registro'), _valore_da(arg, d.end())
     return None
 
 
@@ -1133,9 +1172,9 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
         dinamico = _RX_ESEGUE_CODICE.search(arg) is not None
         nascosto = _RX_NASCOSTO.search(arg) is not None
         if _RX_LOOPBACK.search(arg):
-            g.alza(3, u'output ridiretto su \\\\127.0.0.1 (firma di Impacket)', True)
+            g.alza(3, tr(u'output ridiretto su \\\\127.0.0.1 (firma di Impacket)'), True)
         if _RX_PIPE.search(arg):
-            g.alza(3, u'scrive in una named pipe (tecnica getsystem di Meterpreter e Cobalt Strike)', True)
+            g.alza(3, tr(u'scrive in una named pipe (tecnica getsystem di Meterpreter e Cobalt Strike)'), True)
         if codificato:
             chiari = comandi_decodificati(arg)
             # di sola lettura se lo sono tutti i comandi codificati della riga
@@ -1150,7 +1189,7 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
                     # codificato e, una volta in chiaro, d'attacco o "scarica ed
                     # esegue": certo. (Toccare le impostazioni di Defender con un
                     # comando codificato lo fanno anche gli strumenti di gestione.)
-                    g.alza(3, u'il comando in chiaro: %s' % dentro[1], dentro[1] != _COSA_DIFESE)
+                    g.alza(3, tr(u'il comando in chiaro: %s') % dentro[1], dentro[1] != tr(_COSA_DIFESE))
                     sola_lettura = False
                 elif codice_che_agisce(chiaro):
                     sola_lettura = False
@@ -1159,19 +1198,19 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
                 # comandi per non litigare con le virgolette. Se in chiaro il
                 # comando si limita a leggere informazioni, resta insolito
                 # solo in una voce che parte da sola.
-                g.alza(2, u'comando codificato in Base64 che in chiaro si limita a leggere informazioni')
+                g.alza(2, tr(u'comando codificato in Base64 che in chiaro si limita a leggere informazioni'))
             else:
-                g.alza(3, u'comando codificato in Base64')
+                g.alza(3, tr(u'comando codificato in Base64'))
         if dinamico and nascosto and not g.noto:
             # Con il download e' lo schema classico. Una finestra nascosta da
             # sola non conta: la usano i promemoria e gli script di servizio.
-            g.alza(3, u'esecuzione di codice a finestra nascosta', scarica)
+            g.alza(3, tr(u'esecuzione di codice a finestra nascosta'), scarica)
         if nome == u'mshta.exe' and _RX_SCRIPTLET_MSHTA.search(arg):
-            g.alza(3, u'mshta.exe esegue codice in linea o preso dalla rete')
+            g.alza(3, tr(u'mshta.exe esegue codice in linea o preso dalla rete'))
         elif nome == u'regsvr32.exe' and _RX_SCRIPTLET_REGSVR32.search(arg):
-            g.alza(3, u'regsvr32.exe esegue uno scriptlet', True)
+            g.alza(3, tr(u'regsvr32.exe esegue uno scriptlet'), True)
         elif nome == u'rundll32.exe' and _RX_SCRIPTLET_RUNDLL32.search(arg):
-            g.alza(3, u'rundll32.exe esegue codice in linea', True)
+            g.alza(3, tr(u'rundll32.exe esegue codice in linea'), True)
         if scarica:
             # Dal sito di un produttore un programma di installazione lo
             # scaricano anche gli amministratori: livello 2. Da un indirizzo IP
@@ -1180,40 +1219,40 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
             da_ip = _da_ip_pubblico(arg)
             if nome == u'curl.exe':
                 if not _curl_salva(arg):
-                    g.alza(1, u'curl.exe contatta la rete')
+                    g.alza(1, tr(u'curl.exe contatta la rete'))
                 elif _scarica_un_programma(arg):
                     if produttore:
-                        g.alza(2, u'curl.exe scarica un programma dal sito del produttore')
+                        g.alza(2, tr(u'curl.exe scarica un programma dal sito del produttore'))
                     else:
-                        g.alza(3, u'curl.exe scarica e salva un programma')
+                        g.alza(3, tr(u'curl.exe scarica e salva un programma'))
                 elif da_ip:
-                    g.alza(3, u'curl.exe scarica un file da un indirizzo IP pubblico')
+                    g.alza(3, tr(u'curl.exe scarica un file da un indirizzo IP pubblico'))
                 elif _RX_SCRIVIBILE.search(arg):
-                    g.alza(2, u'curl.exe scarica un file in una cartella scrivibile dagli utenti')
+                    g.alza(2, tr(u'curl.exe scarica un file in una cartella scrivibile dagli utenti'))
                 else:
-                    g.alza(1, u'curl.exe scarica un file di dati')
+                    g.alza(1, tr(u'curl.exe scarica un file di dati'))
             elif nome == u'certutil.exe':
                 if _scarica_un_programma(arg, True):
                     if produttore:
-                        g.alza(2, u'certutil.exe scarica un programma dal sito del produttore')
+                        g.alza(2, tr(u'certutil.exe scarica un programma dal sito del produttore'))
                     else:
-                        g.alza(3, u'certutil.exe scarica un programma')
+                        g.alza(3, tr(u'certutil.exe scarica un programma'))
                 elif [1 for m in _RX_URL.finditer(arg) if _fine_percorso(m.group(0)).endswith(_SUFFISSI_CERTIFICATO)]:
-                    g.alza(1, u'certutil.exe aggiorna un certificato o una lista di revoca')
+                    g.alza(1, tr(u'certutil.exe aggiorna un certificato o una lista di revoca'))
                 elif da_ip:
-                    g.alza(3, u'certutil.exe scarica un file da un indirizzo IP pubblico')
+                    g.alza(3, tr(u'certutil.exe scarica un file da un indirizzo IP pubblico'))
                 else:
-                    g.alza(2, u'certutil.exe scarica dalla rete')
+                    g.alza(2, tr(u'certutil.exe scarica dalla rete'))
             elif nome == u'bitsadmin.exe':
                 if _scarica_un_programma(arg, True):
                     if produttore:
-                        g.alza(2, u'bitsadmin.exe scarica un programma dal sito del produttore')
+                        g.alza(2, tr(u'bitsadmin.exe scarica un programma dal sito del produttore'))
                     else:
-                        g.alza(3, u'bitsadmin.exe scarica un programma')
+                        g.alza(3, tr(u'bitsadmin.exe scarica un programma'))
                 elif da_ip:
-                    g.alza(3, u'bitsadmin.exe scarica un file da un indirizzo IP pubblico')
+                    g.alza(3, tr(u'bitsadmin.exe scarica un file da un indirizzo IP pubblico'))
                 else:
-                    g.alza(2, u'bitsadmin.exe scarica dalla rete')
+                    g.alza(2, tr(u'bitsadmin.exe scarica dalla rete'))
             elif nome == u'msiexec.exe':
                 # un pacchetto .msi preso dal sito di un produttore lo installano
                 # anche gli amministratori; da un indirizzo IP, o con un'altra
@@ -1224,33 +1263,33 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
                             not _fine_percorso(m.group(0)).endswith((u'.msi', u'.msp', u'.mst')):
                         strano = True
                 if strano:
-                    g.alza(3, u'msiexec.exe installa dalla rete un pacchetto da un indirizzo IP o senza estensione .msi')
+                    g.alza(3, tr(u'msiexec.exe installa dalla rete un pacchetto da un indirizzo IP o senza estensione .msi'))
                 elif produttore:
-                    g.alza(1, u'msiexec.exe installa un pacchetto preso dal sito del produttore')
+                    g.alza(1, tr(u'msiexec.exe installa un pacchetto preso dal sito del produttore'))
                 else:
-                    g.alza(2, u'msiexec.exe installa un pacchetto preso dalla rete')
+                    g.alza(2, tr(u'msiexec.exe installa un pacchetto preso dalla rete'))
             elif nome in (u'ftp.exe', u'tftp.exe'):
-                g.alza(2, u'%s scarica dalla rete' % nome)
+                g.alza(2, tr(u'%s scarica dalla rete') % nome)
             elif nome in (u'mshta.exe', u'regsvr32.exe', u'rundll32.exe', u'hh.exe'):
-                g.alza(3, u'%s esegue codice preso dalla rete' % nome)
+                g.alza(3, tr(u'%s esegue codice preso dalla rete') % nome)
             elif dinamico:
-                g.alza(3, u'scarica dalla rete ed esegue')
+                g.alza(3, tr(u'scarica dalla rete ed esegue'))
             elif _scarica_un_programma(arg):
                 if produttore:
-                    g.alza(2, u'scarica un programma dal sito del produttore')
+                    g.alza(2, tr(u'scarica un programma dal sito del produttore'))
                 else:
-                    g.alza(3, u'scarica dalla rete un programma')
+                    g.alza(3, tr(u'scarica dalla rete un programma'))
             elif da_ip and (_RX_DESTINAZIONE.search(arg) or _RX_DOWNLOADFILE.search(arg)
                             or u'start-bitstransfer' in basso):
-                g.alza(3, u'scarica un file da un indirizzo IP pubblico')
+                g.alza(3, tr(u'scarica un file da un indirizzo IP pubblico'))
             else:
-                g.alza(2, u'%s contatta la rete' % nome)
+                g.alza(2, tr(u'%s contatta la rete') % nome)
         elif indirizzo and not g.noto:
-            g.alza(1, u'un indirizzo Internet tra gli argomenti')
+            g.alza(1, tr(u'un indirizzo Internet tra gli argomenti'))
         if nome == u'wmic.exe' and _RX_WMIC_PROCESSO.search(arg):
-            g.alza(2, u'wmic.exe avvia un processo')
+            g.alza(2, tr(u'wmic.exe avvia un processo'))
         if nome == u'wmic.exe' and _RX_WMIC_XSL.search(arg):
-            g.alza(3, u'wmic.exe esegue un foglio di stile preso dalla rete', True)
+            g.alza(3, tr(u'wmic.exe esegue un foglio di stile preso dalla rete'), True)
         if nome in _POWERSHELL or u'powershell' in basso or u'pwsh' in basso:
             schema = _ps_certo(arg)
             if schema is not None:
@@ -1263,26 +1302,26 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
         m = _RX_ARG_WEBDAV.search(arg)
         if m is not None:
             if esegue_da_rete:
-                g.alza(3, u'%s prende un file da un server WebDAV' % nome, nome in (u'rundll32.exe', u'regsvr32.exe'))
+                g.alza(3, tr(u'%s prende un file da un server WebDAV') % nome, nome in (u'rundll32.exe', u'regsvr32.exe'))
             elif _e_programma(_argomento_da(arg, m.start())):
-                g.alza(2, u'%s esegue un file da un server WebDAV' % nome)
+                g.alza(2, tr(u'%s esegue un file da un server WebDAV') % nome)
             else:
-                g.alza(1, u'%s usa una cartella WebDAV' % nome)
+                g.alza(1, tr(u'%s usa una cartella WebDAV') % nome)
         else:
             m = _RX_ARG_UNC_IP.search(arg)
             if m is not None:
                 if ip_pubblico(m.group(0).strip(u'\\')):
-                    g.alza(3, u'%s usa una condivisione su un indirizzo IP pubblico' % nome,
+                    g.alza(3, tr(u'%s usa una condivisione su un indirizzo IP pubblico') % nome,
                            nome in (u'rundll32.exe', u'regsvr32.exe'))
                 elif esegue_da_rete or _e_programma(_argomento_da(arg, m.start())):
-                    g.alza(2, u'%s esegue un file da una condivisione indicata per indirizzo IP' % nome)
+                    g.alza(2, tr(u'%s esegue un file da una condivisione indicata per indirizzo IP') % nome)
                 else:
-                    g.alza(1, u'%s usa una condivisione indicata per indirizzo IP' % nome)
+                    g.alza(1, tr(u'%s usa una condivisione indicata per indirizzo IP') % nome)
         if _RX_PIPE_INTERPRETE.search(arg):
             if scarica or _RX_COMANDO_DI_RETE.search(u' ' + arg):
-                g.alza(3, u'passa a un interprete quello che riceve dalla rete')
+                g.alza(3, tr(u'passa a un interprete quello che riceve dalla rete'))
             else:
-                g.alza(2, u'passa l\'output di un comando a un interprete')
+                g.alza(2, tr(u'passa l\'output di un comando a un interprete'))
         if not g.solo_download and g.livello < 2:
             scrivibile = _RX_SCRIVIBILE.search(arg) is not None
             if scrivibile and _RX_NOTI_IN_PROFILO.search(percorso_normale(arg)):
@@ -1291,46 +1330,46 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
                 scrivibile = False      # la pulizia che gli installatori lasciano in RunOnce (wextract_cleanup)
             if scrivibile:
                 if _RX_SCRIPT.search(arg):
-                    g.alza(2, u'%s lancia uno script da una cartella scrivibile dagli utenti' % nome)
+                    g.alza(2, tr(u'%s lancia uno script da una cartella scrivibile dagli utenti') % nome)
                 elif _RX_PROGRAMMA_ARG.search(arg):
-                    g.alza(2, u'%s lavora su una cartella scrivibile dagli utenti' % nome)
+                    g.alza(2, tr(u'%s lavora su una cartella scrivibile dagli utenti') % nome)
                 elif nome == u'cmd.exe' and _RX_SOLO_CANCELLA.match(arg):
                     # la pulizia dei file temporanei: non esegue nulla
-                    g.alza(1, u'cmd.exe cancella file in una cartella scrivibile dagli utenti')
+                    g.alza(1, tr(u'cmd.exe cancella file in una cartella scrivibile dagli utenti'))
                 else:
                     # nessun programma tra gli argomenti: in una voce che parte
                     # da sola resta insolito; in un comando scritto a mano
                     # (salvare un output sul Desktop) e' normale
-                    g.alza(2 if persistenza else 1, u'%s lavora su una cartella scrivibile dagli utenti' % nome)
+                    g.alza(2 if persistenza else 1, tr(u'%s lavora su una cartella scrivibile dagli utenti') % nome)
         if offuscato:
-            g.alza(2, u'comando offuscato (^ o "" in mezzo alle parole)')
+            g.alza(2, tr(u'comando offuscato (^ o "" in mezzo alle parole)'))
         # l'interprete stesso in un posto dove non dovrebbe stare
         if con_percorso and (g.zona in (u'sospetta', u'temporanea') or
                              (g.zona == u'utente' and nome in _SOLO_DI_SISTEMA and not noto_in_profilo(eseguibile))):
-            g.alza(2, u'%s avviato da una copia fuori dalle cartelle di sistema' % nome)
+            g.alza(2, tr(u'%s avviato da una copia fuori dalle cartelle di sistema') % nome)
     else:
         if g.zona == u'sospetta':
-            g.alza(2, u'programma in una cartella dove di norma non ce ne sono')
+            g.alza(2, tr(u'programma in una cartella dove di norma non ce ne sono'))
         elif g.zona == u'temporanea':
-            g.alza(2 if persistenza else 1, u'programma in una cartella temporanea')
+            g.alza(2 if persistenza else 1, tr(u'programma in una cartella temporanea'))
         elif g.zona == u'rete' and persistenza:
             if _RX_UNC_SOSPETTO.match(percorso_normale(eseguibile)):
-                g.alza(2, u'programma avviato da una condivisione indicata per indirizzo IP o via WebDAV')
+                g.alza(2, tr(u'programma avviato da una condivisione indicata per indirizzo IP o via WebDAV'))
             else:
-                g.alza(1, u'programma avviato da una condivisione di rete')
+                g.alza(1, tr(u'programma avviato da una condivisione di rete'))
         elif g.zona == u'utente':
             if not noto_in_profilo(eseguibile):
-                g.alza(1, u'programma in una cartella dell\'utente')
+                g.alza(1, tr(u'programma in una cartella dell\'utente'))
         if _RX_LOOPBACK.search(tutto):
-            g.alza(3, u'output ridiretto su \\\\127.0.0.1 (firma di Impacket)', True)
+            g.alza(3, tr(u'output ridiretto su \\\\127.0.0.1 (firma di Impacket)'), True)
     if fuori_posto(eseguibile):
-        g.alza(2, u'nome di un processo di sistema fuori dalle cartelle di sistema')
+        g.alza(2, tr(u'nome di un processo di sistema fuori dalle cartelle di sistema'))
     if u'\u202e' in tutto:
-        g.alza(2, u'il nome contiene il carattere che inverte il verso del testo (camuffa l\'estensione)')
+        g.alza(2, tr(u'il nome contiene il carattere che inverte il verso del testo (camuffa l\'estensione)'))
     if nome == u'conhost.exe' and u'--headless' in arg.lower():
         # lo usano gli attaccanti e anche chi vuole un'attivita' pianificata
         # senza finestra: da solo e' contesto, conta il comando che avvia
-        g.alza(1, u'conhost.exe --headless avvia un comando senza finestra')
+        g.alza(1, tr(u'conhost.exe --headless avvia un comando senza finestra'))
     if not _annidato and nome in (u'schtasks.exe', u'sc.exe', u'reg.exe'):
         avvio = crea_avvio(nome, arg)
         if avvio is not None and avvio[1]:
@@ -1350,7 +1389,7 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
                 # vale quanto la voce che crea: un livello 3 dentro una voce
                 # di avvio e' decisivo ovunque compaia il comando
                 forte = dentro.livello >= 3 or peso_s >= DECISIVO
-                g.alza(3 if forte else 2, u'crea %s che lancia: %s' % (avvio[0], u'; '.join(motivi)), forte)
+                g.alza(3 if forte else 2, tr(u'crea %s che lancia: %s') % (avvio[0], u'; '.join(motivi)), forte)
                 g.avvio = True
                 if dentro.decodificato:
                     g.decodificato = dentro.decodificato
@@ -1364,11 +1403,11 @@ def valuta_comando(comando, argomenti=None, persistenza=True, _annidato=0):
         peso_s, cosa_s = strumento_nominato(cartella + u' ' + arg)
         if peso_s >= DECISIVO:
             if solo_cercato(tutto):
-                g.alza(1, u'cerca per nome uno ' + cosa_s)
+                g.alza(1, tr(u'cerca per nome uno ') + cosa_s)
             else:
-                g.alza(3, u'nomina uno ' + cosa_s, True)
+                g.alza(3, tr(u'nomina uno ') + cosa_s, True)
         elif peso_s and g.interprete:
-            g.alza(2, u'nomina uno ' + cosa_s)
+            g.alza(2, tr(u'nomina uno ') + cosa_s)
     if _annidato < 2 and g.livello < 3 and arg:
         # un interprete lanciato tramite un altro programma: si giudica anche
         # lui (fino a due livelli: "launcher.exe ... cmd /c regsvr32 ...")
@@ -1409,12 +1448,16 @@ def _in_sequenza(sequenza, testo):
 # Ogni regola: (alternative, peso, famiglia, descrizione); ogni alternativa e'
 # una sequenza di espressioni che devono comparire in quell'ordine, oppure
 # una funzione che riceve la riga e risponde vero o falso.
-_COSA_SHADOW = u'cancellazione delle copie shadow o dei backup'
-_COSA_CERTUTIL = u'download con certutil'
-_COSA_DOWNLOAD = u'download o installazione da rete con uno strumento di Windows'
-_COSA_INVIO = u'dati preparati o inviati verso l\'esterno (caricamento con curl, archivio RAR cifrato anche nei nomi)'
-_COSA_LOG = u'cancellazione dei registri eventi da riga di comando'
-_COSA_ATEXEC = u'firma di atexec: output in un file .tmp di 8 lettere in Windows\\Temp'
+_COSA_SHADOW = N_(u'cancellazione delle copie shadow o dei backup')
+_COSA_CERTUTIL = N_(u'download con certutil')
+_COSA_DOWNLOAD = N_(u'download o installazione da rete con uno strumento di Windows')
+_COSA_INVIO = N_(u'dati preparati o inviati verso l\'esterno (caricamento con curl, archivio RAR cifrato anche nei nomi)')
+_COSA_LOG = N_(u'cancellazione dei registri eventi da riga di comando')
+_COSA_ATEXEC = N_(u'firma di atexec: output in un file .tmp di 8 lettere in Windows\\Temp')
+_COSA_ATEXEC_DUBBIO = N_(u'output ridiretto in un file .tmp di 8 lettere in Windows\\Temp: lo fa atexec, '
+                         u'ma qui il nome non sembra casuale')
+_COSA_UN_LOG = N_(u'cancellazione di uno dei registri eventi da riga di comando (non quello di sicurezza)')
+_COSA_TRACCE = N_(u'registrazione delle tracce disattivata (servizio dei registri eventi, audit, cronologia di PowerShell)')
 # (?<!help ): "Get-Help Clear-EventLog" e' una domanda, non una cancellazione
 _RX_CANCELLA_LOG = _rx(u'wevtutil(\\.exe)?"?\\s+(cl|clear-log)\\b|(?<!help )(clear-eventlog|remove-eventlog)\\b'
                        u'|globalsession\\.clearlog\\(')
@@ -1531,17 +1574,17 @@ COMANDI = [
      DA_CONFERMARE, F_ANTIFORENSE, _COSA_SHADOW),
     ([(_RX_CANCELLA_LOG,)], DECISIVO, F_ANTIFORENSE, _COSA_LOG),
     ([(_rx(u'bcdedit(\\.exe)?"?\\s'), _rx(u'recoveryenabled\\s+no|bootstatuspolicy\\s+ignoreallfailures'))],
-     DA_CONFERMARE, F_ANTIFORENSE, u'ripristino di sistema disattivato'),
+     DA_CONFERMARE, F_ANTIFORENSE, N_(u'ripristino di sistema disattivato')),
     ([(_rx(u'certutil(\\.exe)?"?\\s'), _rx(u'(-|/)(urlcache|verifyctl)\\b'), _rx(u'(https?|ftp)://'))],
      DA_CONFERMARE, F_ESECUZIONE, _COSA_CERTUTIL),
     ([(_rx(u'certutil(\\.exe)?"?\\s'), _rx(u'(-|/)(decode|decodehex|encode)\\b'))],
-     DA_CONFERMARE, F_ESECUZIONE, u'certutil usato per codificare o decodificare un file'),
+     DA_CONFERMARE, F_ESECUZIONE, N_(u'certutil usato per codificare o decodificare un file')),
     ([(_rx(u'bitsadmin(\\.exe)?"?\\s'), _rx(u'/transfer\\b'), _rx(u'(https?|ftp)://')),
       (_rx(u'msiexec(\\.exe)?"?\\s'), _rx(u'(https?|ftp)://'))],
      DA_CONFERMARE, F_ESECUZIONE, _COSA_DOWNLOAD),
     ([(_rx(u'comsvcs(\\.dll)?[, ]+(minidump|#24)|sekurlsa::|lsadump::'),),
       (_rx(u'procdump(64)?(\\.exe)?"?\\s'), _rx(u'lsass'))],
-     DECISIVO, F_STRUMENTI, u'estrazione di credenziali'),
+     DECISIVO, F_STRUMENTI, N_(u'estrazione di credenziali')),
     # passi che fanno anche gli amministratori (backup, preparazione di un
     # nuovo controller di dominio): da soli non bastano
     ([(_rx(u'reg(\\.exe)?"?\\s+save\\s+"?(hklm|hkey_local_machine)\\\\(sam|security|system)\\b'),),
@@ -1549,89 +1592,89 @@ COMANDI = [
       (_rx(u'esentutl(\\.exe)?"?\\s'), _rx(u'ntds\\.dit')),
       (_rx(u'harddiskvolumeshadowcopy\\d*\\\\'), _rx(u'ntds\\.dit|\\\\config\\\\(sam|system|security)\\b'))],
      DA_CONFERMARE, F_STRUMENTI,
-     u'copia del SAM, del registro SYSTEM o del database di Active Directory (passo tipico dell\'estrazione di '
-     u'credenziali, ma anche di un backup)'),
+     N_(u'copia del SAM, del registro SYSTEM o del database di Active Directory (passo tipico dell\'estrazione di '
+     u'credenziali, ma anche di un backup)')),
     # la copia shadow la creano i backup; e' anche il primo passo per copiare
     # il database di Active Directory, ma il passo che conta e' la copia
     ([(_rx(u'vssadmin(\\.exe)?"?\\s'), _rx(u'create\\s+shadow')),
       (_rx(u'(?<![a-z])shadowcopy\\s+call\\s+create'),)],
-     INFORMATIVO, F_STRUMENTI, u'creazione di una copia shadow da riga di comando'),
+     INFORMATIVO, F_STRUMENTI, N_(u'creazione di una copia shadow da riga di comando')),
     ([(_rx(u'(?<![a-z0-9_-])net1?(\\.exe)?"?\\s+users?\\s'), _rx(u'/add\\b')),
       (_rx(u'(?<!help )new-localuser\\s'),)],
-     DA_CONFERMARE, F_ACCOUNT, u'creazione di un account da riga di comando'),
+     DA_CONFERMARE, F_ACCOUNT, N_(u'creazione di un account da riga di comando')),
     ([(_rx(u'(?<![a-z0-9_-])net1?(\\.exe)?"?\\s+(localgroup|group)\\s+"?(administrat\\w+|amministratori'
            u'|administradores|domain admins|remote desktop users|utenti desktop remoto)"?\\s'), _rx(u'/add\\b')),
       (_rx(u'(?<!help )add-localgroupmember\\s'),
        _rx(u'(administrat\\w+|amministratori|administradores|remote desktop users|utenti desktop remoto'
            u'|s-1-5-32-(544|555))'))],
-     DA_CONFERMARE, F_ACCOUNT, u'utente aggiunto a un gruppo privilegiato da riga di comando'),
+     DA_CONFERMARE, F_ACCOUNT, N_(u'utente aggiunto a un gruppo privilegiato da riga di comando')),
     ([(_rx(u'set-mppreference\\s'), _rx(u'-disable\\w+\\s+(\\$true|true|1)\\b')),
       (_rx(u'(set|add)-mppreference\\s'), _rx(u'-exclusion')),
       (_rx(u'netsh(\\.exe)?"?\\s+(advfirewall|firewall)\\s+set\\s+\\S+\\s+state\\s+off'),),
       (_rx(u'netsh(\\.exe)?"?\\s+firewall\\s+set\\s+opmode\\s+(mode\\s*=\\s*)?disable'),)],
-     DA_CONFERMARE, F_ANTIFORENSE, u'protezioni disattivate da riga di comando'),
+     DA_CONFERMARE, F_ANTIFORENSE, N_(u'protezioni disattivate da riga di comando')),
     ([(_rx(u'cipher(\\.exe)?"?\\s+/w|(?<![a-z])sdelete(64)?(\\.exe)?"?\\s|fsutil(\\.exe)?"?\\s+usn\\s+deletejournal'),)],
-     DA_CONFERMARE, F_ANTIFORENSE, u'cancellazione sicura o del journal'),
+     DA_CONFERMARE, F_ANTIFORENSE, N_(u'cancellazione sicura o del journal')),
     ([(_REG_ADD, _rx(u'\\\\wdigest\\b'), _rx(u'uselogoncredential'), _rx(u'/d\\s+"?(1|0x1)\\b')),
       (_REG_ADD, _rx(u'\\\\lsa\\b'), _rx(u'disablerestrictedadmin'), _rx(u'/d\\s+"?(0|0x0)\\b')),
       (_rx(u'findstr(\\.exe)?"?\\s'), _rx(u'cpassword')),
       (_rx(u'(?<![a-z0-9_-])reg(\\.exe)?"?\\s+query\\s'), _rx(u'/f\\s+"?passw'))],
-     DA_CONFERMARE, F_STRUMENTI, u'preparazione al furto di credenziali (WDigest, Restricted Admin, ricerca di password)'),
+     DA_CONFERMARE, F_STRUMENTI, N_(u'preparazione al furto di credenziali (WDigest, Restricted Admin, ricerca di password)')),
     (_ferma(u'(?<![a-z0-9_-])eventlog\\b|windows event log|registro eventi di windows') + [
       (_rx(u'auditpol(\\.exe)?"?\\s'), _rx(u'/clear\\b|/remove\\b')),
       (_rx(u'auditpol(\\.exe)?"?\\s'), _rx(u'/category:\\s*"?\\*'), _rx(u':\\s*disable')),
       (_rx(u'wevtutil(\\.exe)?"?\\s+(sl|set-log)\\s'), _rx(u'/e(nabled)?:\\s*false')),
       (_rx(u'(remove-item|clear-content|(?<![a-z0-9_-])(del|erase|rm))\\s[^|&;\\n]{0,200}?(historysavepath|consolehost_history)'),),
       (_rx(u'set-psreadlineoption\\s'), _rx(u'savenothing'))],
-     DA_CONFERMARE, F_ANTIFORENSE,
-     u'registrazione delle tracce disattivata (servizio dei registri eventi, audit, cronologia di PowerShell)'),
+     DA_CONFERMARE, F_ANTIFORENSE, _COSA_TRACCE),
     (_ferma(_NOMI_ANTIVIRUS) + [
       (_rx(u'mpcmdrun(\\.exe)?"?\\s'), _rx(u'-removedefinitions')),
       (_REG_ADD, _rx(u'windows defender|microsoft antimalware'), _rx(u'disable\\w+'), _rx(u'/d\\s+"?(1|0x1)\\b'))],
-     DA_CONFERMARE, F_ANTIFORENSE, u'antivirus fermato o disattivato da riga di comando'),
+     DA_CONFERMARE, F_ANTIFORENSE, N_(u'antivirus fermato o disattivato da riga di comando')),
     ([(_rx(u'wmic(\\.exe)?"?\\s'), _rx(u'/node:'), _rx(u'process\\s+call\\s+create')),
       (_rx(u'(?<![a-z0-9_-])sc(\\.exe)?"?\\s+\\\\\\\\[^\\s\\\\]+\\s+(create|config)\\s'), _rx(u'binpath\\s*=')),
       _schtasks_remoto,
       (_rx(u'(?<![a-z0-9_-])(copy|xcopy|move|robocopy)(\\.exe)?\\s'),
        _rx(u'\\\\\\\\(?!127\\.0\\.0\\.1\\\\|localhost\\\\)[^\\s\\\\"]+\\\\(admin\\$|c\\$\\\\(windows|programdata|perflogs|users\\\\public|temp)\\b)'))],
      DA_CONFERMARE, F_LATERALE,
-     u'esecuzione o copia verso un\'altra macchina (wmic /node, sc o schtasks remoti, condivisione amministrativa)'),
+     N_(u'esecuzione o copia verso un\'altra macchina (wmic /node, sc o schtasks remoti, condivisione amministrativa)')),
     ([(_rx(u'netsh(\\.exe)?"?\\s'), _rx(u'portproxy\\s+add\\b')),
       (_rx(u'(?<![a-z0-9_-])ssh(\\.exe)?"?(?=\\s)'), _rx(u'\\s-R\\s*\\S'))],
-     DA_CONFERMARE, F_ESFILTRAZIONE, u'tunnel verso l\'esterno (inoltro di porta con netsh, ssh -R)'),
+     DA_CONFERMARE, F_ESFILTRAZIONE, N_(u'tunnel verso l\'esterno (inoltro di porta con netsh, ssh -R)')),
     ([(_rx(u'curl(\\.exe)?"?(?=\\s)'), _rx(u'\\s-T\\s|--upload-file\\s|\\s(-F|--form)\\s+\\S*=@|--data-binary\\s+"?@')),
       (_rx(u'(?<![a-z0-9_-])(win)?rar(\\.exe)?"?\\s+a(?=\\s)'), _rx(u'\\s-hp\\S'))],
      DA_CONFERMARE, F_ESFILTRAZIONE, _COSA_INVIO),
     ([(_REG_ADD, _rx(u'terminal server'), _rx(u'fdenytsconnections'), _rx(u'/d\\s+"?(0|0x0)\\b')),
       (_rx(u'set-itemproperty\\s'), _rx(u'fdenytsconnections["\']?\\s+(-value\\s+)?["\']?0\\b'))],
-     DA_CONFERMARE, F_ACCESSI, u'Desktop remoto abilitato da riga di comando'),
+     DA_CONFERMARE, F_ACCESSI, N_(u'Desktop remoto abilitato da riga di comando')),
     ([(_REG_ADD, _rx(u'specialaccounts\\\\userlist'))],
-     DA_CONFERMARE, F_ACCOUNT, u'account nascosto dalla schermata di accesso'),
+     DA_CONFERMARE, F_ACCOUNT, N_(u'account nascosto dalla schermata di accesso')),
     ([(_REG_ADD, _rx(u'image file execution options\\\\(sethc|utilman|osk|narrator|magnify|displayswitch|atbroker)\\.exe'),
        _rx(u'debugger')),
       (_rx(u'(?<![a-z0-9_-])(copy|xcopy|move)\\s'), _rx(u'(cmd|powershell)\\.exe'),
        _rx(u'\\\\(sethc|utilman|osk|narrator|magnify|displayswitch)\\.exe'))],
-     DECISIVO, F_PERSISTENZA, u'porta di servizio sulla schermata di accesso (\u00absticky keys\u00bb)'),
+     DECISIVO, F_PERSISTENZA, N_(u'porta di servizio sulla schermata di accesso (\u00absticky keys\u00bb)')),
     ([(_rx(u'installutil(\\.exe)?"?\\s'), _rx(u'logtoconsole\\s*=\\s*false')),
       (_rx(u'odbcconf(\\.exe)?"?\\s'), _rx(u'\\bregsvr\\s')),
       (_rx(u'cmstp(\\.exe)?"?\\s'), _rx(u'/ni\\b'), _rx(u'/s\\b')),
       (_rx(u'cmstp(\\.exe)?"?\\s'), _rx(u'/s\\b'), _rx(u'/ni\\b')),
       (_rx(u'mavinject(64)?(\\.exe)?"?\\s'), _rx(u'/injectrunning\\b'))],
      DA_CONFERMARE, F_ESECUZIONE,
-     u'programma di Windows usato per far eseguire codice altrui (InstallUtil, odbcconf, cmstp, mavinject)'),
+     N_(u'programma di Windows usato per far eseguire codice altrui (InstallUtil, odbcconf, cmstp, mavinject)')),
     ([(_rx(u'setspn(\\.exe)?"?\\s'), _rx(u'-q\\s+"?\\*/\\*'))],
-     DA_CONFERMARE, F_ESECUZIONE, u'elenco di tutti gli SPN del dominio (ricognizione per il Kerberoasting)'),
+     DA_CONFERMARE, F_ESECUZIONE, N_(u'elenco di tutti gli SPN del dominio (ricognizione per il Kerberoasting)')),
     # nei registri eventi il segno % compare raddoppiato (%%windir%%)
     ([(_rx(u'cmd(\\.exe)?"?\\s+/c\\s'),
        _rx(u'>\\s*%{0,2}(windir%{0,2}|systemroot%{0,2}|c:\\\\windows)\\\\temp\\\\[A-Za-z]{8}\\.tmp\\s+2>&1'))],
      DECISIVO, F_LATERALE, _COSA_ATEXEC),
     ([(_rx(u'cmd(\\.exe)?"?\\s+/q\\s+/c\\s'), _rx(u'\\\\\\\\127\\.0\\.0\\.1\\\\(admin|c)\\$\\\\__'))],
-     DECISIVO, F_LATERALE, u'firma di Impacket: output ridiretto su \\\\127.0.0.1'),
+     DECISIVO, F_LATERALE, N_(u'firma di Impacket: output ridiretto su \\\\127.0.0.1')),
 ]
 
 
 def comandi_noti(riga):
-    """Comandi che pesano da soli: lista di (peso, famiglia, descrizione)."""
+    """Comandi che pesano da soli: lista di (peso, famiglia, descrizione).
+    La descrizione e' gia' nella lingua dell'analisi in corso."""
     trovati = []
     if not riga:
         return trovati
@@ -1645,12 +1688,11 @@ def comandi_noti(riga):
                     m = _RX_TMP_ATEXEC.search(riga)
                     if m is None or not nome_casuale(m.group(1)):
                         peso = DA_CONFERMARE
-                        cosa = (u'output ridiretto in un file .tmp di 8 lettere in Windows\\Temp: lo fa atexec, '
-                                u'ma qui il nome non sembra casuale')
+                        cosa = _COSA_ATEXEC_DUBBIO
                 elif cosa is _COSA_LOG:
                     peso = _peso_cancella_log(riga)
                     if peso < DECISIVO:
-                        cosa = u'cancellazione di uno dei registri eventi da riga di comando (non quello di sicurezza)'
+                        cosa = _COSA_UN_LOG
                 elif cosa is _COSA_SHADOW and _RX_TIENE_VERSIONI.search(riga) \
                         and u'vssadmin' not in riga.lower() and u'shadowcopy' not in riga.lower():
                     break       # pulizia dei backup vecchi: non e' una cancellazione
@@ -1669,9 +1711,16 @@ def comandi_noti(riga):
                     nomi = _host_degli_indirizzi(riga)
                     if nomi and not [n for n in nomi if not host_interno(n)]:
                         break   # il file va a un server della rete interna
-                trovati.append((peso, famiglia, cosa))
+                trovati.append((peso, famiglia, tr(cosa)))
                 break
     return trovati
+
+
+def sui_registri(cosa):
+    '''Vero se la descrizione, cosi' come la restituisce comandi_noti, e'
+    quella di un comando che cancella i registri eventi o ne ferma la
+    registrazione.'''
+    return cosa in (tr(_COSA_LOG), tr(_COSA_UN_LOG), tr(_COSA_TRACCE))
 
 
 _RX_TMP_ATEXEC = re.compile(u'\\\\temp\\\\([A-Za-z]{8})\\.tmp\\s+2>&1', re.I)
@@ -1693,18 +1742,18 @@ def firma_smbexec(nome_servizio, percorso):
     p = percorso or u''
     basso = p.lower()
     if (nome_servizio or u'').upper() == u'BTOBTO':
-        return DECISIVO, u'nome di servizio BTOBTO (smbexec fino a maggio 2023)'
+        return DECISIVO, tr(u'nome di servizio BTOBTO (smbexec fino a maggio 2023)')
     m = _RX_SMBEXEC.search(p)
     if m is not None:
-        return DECISIVO, u'il servizio contiene \u00ab%s\u00bb (firma di smbexec)' % m.group(1)
+        return DECISIVO, tr(u'il servizio contiene \u00ab%s\u00bb (firma di smbexec)') % m.group(1)
     con_cmd = u'comspec' in basso or u'cmd' in basso
     if con_cmd and _RX_EXECUTE_BAT.search(p):
-        return DA_CONFERMARE, u'il servizio lancia execute.bat dalla cartella temporanea (come smbexec fino al 2023)'
+        return DA_CONFERMARE, tr(u'il servizio lancia execute.bat dalla cartella temporanea (come smbexec fino al 2023)')
     m = _RX_BAT8.search(p)
     if m is not None and con_cmd:
         if nome_casuale(m.group(2)):
-            return DECISIVO, u'il servizio lancia un batch con nome di 8 lettere a caso in C:\\Windows (smbexec dal 2023)'
-        return DA_CONFERMARE, u'il servizio lancia un batch in C:\\Windows tramite cmd'
+            return DECISIVO, tr(u'il servizio lancia un batch con nome di 8 lettere a caso in C:\\Windows (smbexec dal 2023)')
+        return DA_CONFERMARE, tr(u'il servizio lancia un batch in C:\\Windows tramite cmd')
     return None
 
 
@@ -1755,8 +1804,8 @@ _PS_DIFESE = [(_rx(u'set-mppreference\\s'), _rx(u'-disable\\w+\\s+(\\$true|1)'))
               (_rx(u'disable(realtimemonitoring|antispyware|behaviormonitoring|ioavprotection|scriptscanning)'
                    u'["\'\\s,=:]{1,8}(-value\\s+|/d\\s+)?["\']?(1|\\$true|true)\\b'),),
               (_rx(u'uninstall-windowsfeature'), _rx(u'defender'))]
-_COSA_DIFESE = u'modifica le protezioni di Defender'
-_COSA_SCRIPT = u'script d\'attacco'
+_COSA_DIFESE = N_(u'modifica le protezioni di Defender')
+_COSA_SCRIPT = N_(u'script d\'attacco')
 # stager: codice compresso e codificato, decompresso in memoria ed eseguito
 # (lo schema di Cobalt Strike, Metasploit, Empire)
 _RX_PS_BASE64 = re.compile(u'frombase64string', re.I)
@@ -1778,10 +1827,10 @@ def _ps_certo(testo):
     (descrizione, posizione) oppure None."""
     m = _RX_PS_BASE64.search(testo)
     if m is not None and _RX_PS_COMPRESSO.search(testo) and _RX_PS_ESEGUE.search(testo):
-        return u'codice compresso e codificato, decompresso in memoria ed eseguito (stager)', m.start()
+        return tr(u'codice compresso e codificato, decompresso in memoria ed eseguito (stager)'), m.start()
     m = _RX_PS_SOCKET.search(testo)
     if m is not None and _RX_PS_FLUSSO.search(testo) and _RX_PS_ESEGUE_RICEVUTO.search(testo):
-        return u'shell remota: riceve i comandi da una connessione TCP e li esegue (reverse shell)', m.start()
+        return tr(u'shell remota: riceve i comandi da una connessione TCP e li esegue (reverse shell)'), m.start()
     return None
 
 
@@ -1794,20 +1843,20 @@ def ps_sospetto(testo, breve=True, culla=True):
         return None
     m = _RX_PS_ATTACCO.search(testo)
     if m is not None:
-        return DECISIVO, u'%s (%s)' % (_COSA_SCRIPT, m.group(1)), m.start()
+        return DECISIVO, u'%s (%s)' % (tr(_COSA_SCRIPT), m.group(1)), m.start()
     schema = _ps_certo(testo)
     if schema is not None:
         return DECISIVO, schema[0], schema[1]
     for sequenza in _PS_DIFESE:
         posizione = _in_sequenza(sequenza, testo)
         if posizione >= 0:
-            return DA_CONFERMARE, _COSA_DIFESE, posizione
+            return DA_CONFERMARE, tr(_COSA_DIFESE), posizione
     if culla and (not breve or len(testo) < 6000):
         m = _RX_PS_CULLA.search(testo)
         if m is not None and _RX_PS_IEX.search(testo):
             if solo_download_noti(testo):
-                return INFORMATIVO, u'scarica ed esegue uno script di installazione noto', m.start()
-            return DA_CONFERMARE, u'scarica ed esegue codice', m.start()
+                return INFORMATIVO, tr(u'scarica ed esegue uno script di installazione noto'), m.start()
+            return DA_CONFERMARE, tr(u'scarica ed esegue codice'), m.start()
     return None
 
 
@@ -1860,8 +1909,8 @@ def riga_di_console(riga):
     cercato = solo_cercato(riga)
     g = ps_sospetto(riga, breve=False)
     if g is not None:
-        if cercato and g[1].startswith(_COSA_SCRIPT):
-            trovato = (INFORMATIVO, F_STRUMENTI, u'cerca per nome uno ' + g[1])
+        if cercato and g[1].startswith(tr(_COSA_SCRIPT)):
+            trovato = (INFORMATIVO, F_STRUMENTI, tr(u'cerca per nome uno ') + g[1])
         else:
             trovato = (g[0], F_STRUMENTI if g[0] == DECISIVO else F_ESECUZIONE, g[1])
     for peso, famiglia, cosa in comandi_noti(riga):
@@ -1870,7 +1919,7 @@ def riga_di_console(riga):
     # uno strumento noto lanciato o nominato nella riga (".\\Rubeus.exe kerberoast", "nc -e cmd ...")
     peso, cosa = strumento_nominato(riga, True)
     if peso >= DECISIVO and cercato:
-        peso, cosa = INFORMATIVO, u'cerca per nome uno ' + cosa
+        peso, cosa = INFORMATIVO, tr(u'cerca per nome uno ') + cosa
     if peso and (trovato is None or peso > trovato[0]):
         trovato = (peso, F_STRUMENTI if peso == DECISIVO else (F_DOPPIO_USO if peso == DA_CONFERMARE else F_STRUMENTI), cosa)
     if trovato is None or trovato[0] < DECISIVO:

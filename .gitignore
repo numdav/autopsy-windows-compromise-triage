@@ -1,0 +1,20 @@
+# Jython and Python bytecode
+*$py.class
+*.class
+*.pyc
+__pycache__/
+
+# Release archives are attached to GitHub releases, not committed
+dist/
+*.zip
+
+# Jython jars downloaded to run the tests
+jython-standalone-*.jar
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store

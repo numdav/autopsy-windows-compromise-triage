@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
-Triage compromissione Windows - modulo di ingest per Autopsy.
+Triage compromissione Windows - modulo di ingest per Autopsy (nell'elenco
+dei moduli compare come "Windows Compromise Triage").
 
 Esegue sull'origine dati i controlli della checklist "Questa macchina
 Windows e' compromessa?" e dice in pochi minuti se merita un'analisi
@@ -9,10 +11,11 @@ forense completa. Produce:
   - i segnali, come risultati di analisi nell'albero di Autopsy
     (Analysis Results > Triage compromissione: segnali);
   - un report HTML e un CSV nella cartella Reports del caso.
+I risultati possono essere in italiano o in inglese (vedi tc_lingua.py).
 
 Installazione: copiare l'intera cartella TriageCompromissione nella cartella
 dei moduli Python di Autopsy (menu Tools > Python Plugins) e riavviare
-Autopsy. Vedi LEGGIMI.txt.
+Autopsy. Vedi README.it.md (in inglese: README.md).
 """
 
 import os
@@ -28,6 +31,7 @@ from java.util import ArrayList
 from java.util.logging import Level
 from javax.swing import JLabel
 from javax.swing import JTextField
+from javax.swing import JComboBox
 from javax.swing import JSpinner
 from javax.swing import SpinnerNumberModel
 from javax.swing import BoxLayout
@@ -57,6 +61,7 @@ from org.sleuthkit.autopsy.ingest import IngestServices
 # regole mentre un'analisi e' in corso su un altro thread gliele farebbe
 # trovare a meta'. Dopo aver modificato un file tc_*.py va riavviato Autopsy.
 import tc_base
+import tc_lingua
 import tc_evtx
 import tc_registro
 import tc_prefetch
@@ -69,8 +74,27 @@ import tc_c_eventi
 import tc_c_file
 import tc_controlli
 import tc_report
+from tc_lingua import tr
 
-NOME_MODULO = u'Triage compromissione Windows'
+# Le lingue sono due. Quella dell'interfaccia (descrizione del modulo,
+# pannello delle impostazioni) e' quella del sistema, cioe' di Java: italiano
+# se Windows (o Autopsy) e' in italiano, altrimenti inglese. Quella dei
+# risultati (messaggio, albero, report) si sceglie nel pannello e, finche'
+# non la si sceglie, e' la stessa.
+LINGUA_SISTEMA = tc_lingua.del_sistema()
+
+
+def _ui(testo):
+    """Un testo dell'interfaccia, nella lingua del sistema."""
+    return tc_lingua.tr_in(LINGUA_SISTEMA, testo)
+
+
+# Il nome del modulo NON si traduce. Autopsy riconosce i moduli dal nome: lo
+# salva nelle impostazioni di ingest e nei profili usati da riga di comando.
+# Se cambiasse con la lingua, alla prima analisi dopo il cambio Autopsy
+# direbbe che il modulo "non si trova piu'" e un'ingest da riga di comando
+# con quel profilo non partirebbe.
+NOME_MODULO = u'Windows Compromise Triage'
 TIPO_SEGNALE = u'TC_SEGNALE'
 TIPO_VERDETTO = u'TC_VERDETTO'
 
@@ -84,7 +108,7 @@ def _traccia():
     try:
         return traceback.format_exc().decode('utf-8', 'replace')
     except ERRORI:
-        return u'(traccia non disponibile)'
+        return tr(u'(traccia non disponibile)')
 
 try:
     from org.python.core import Py
@@ -148,8 +172,8 @@ class ElementoAutopsy(tc_origine.Elemento):
             try:
                 dettaglio = unicode(errore).encode('ascii', 'replace')
             except ERRORI:
-                dettaglio = 'errore non descrivibile'
-            raise IOError('lettura non riuscita (posizione %d): %s' % (posizione, dettaglio[:300]))
+                dettaglio = tr(u'errore non descrivibile')
+            raise IOError(tr(u'lettura non riuscita (posizione %d): %s') % (posizione, dettaglio[:300]))
         if letti <= 0:
             return ''
         return _da_byte(vettore, letti)
@@ -191,8 +215,8 @@ class OrigineAutopsy(tc_origine.Origine):
             try:
                 dettaglio = unicode(errore).encode('ascii', 'replace')
             except ERRORI:
-                dettaglio = 'errore non descrivibile'
-            raise IOError('interrogazione del database del caso non riuscita: %s' % dettaglio[:300])
+                dettaglio = tr(u'errore non descrivibile')
+            raise IOError(tr(u'interrogazione del database del caso non riuscita: %s') % dettaglio[:300])
         elementi = []
         for f in trovati:
             try:
@@ -244,9 +268,9 @@ class TriageCompromissioneFactory(IngestModuleFactoryAdapter):
     def getModuleDescription(self):
         # nella finestra dei moduli Autopsy mostra solo i primi 60 caratteri
         # circa (il resto compare fermando il mouse sul testo)
-        return (u'Triage rapido: dice se una macchina Windows \u00e8 compromessa e merita un\'analisi forense '
-                u'completa. Cerca i segni di compromissione nei registri eventi, nel registro di sistema, nel '
-                u'Prefetch e negli altri artefatti; produce un verdetto, i segnali e un report HTML.')
+        return _ui(u'Triage rapido: dice se una macchina Windows \u00e8 compromessa e merita un\'analisi forense '
+                   u'completa. Cerca i segni di compromissione nei registri eventi, nel registro di sistema, nel '
+                   u'Prefetch e negli altri artefatti; produce un verdetto, i segnali e un report HTML.')
 
     def getModuleVersionNumber(self):
         return tc_controlli.VERSIONE
@@ -265,12 +289,12 @@ class TriageCompromissioneFactory(IngestModuleFactoryAdapter):
 
     def getIngestJobSettingsPanel(self, settings):
         if not isinstance(settings, GenericIngestModuleJobSettings):
-            raise IllegalArgumentException(u'Le impostazioni devono essere di tipo GenericIngestModuleJobSettings')
+            raise IllegalArgumentException(_ui(u'Le impostazioni devono essere di tipo GenericIngestModuleJobSettings'))
         return TriageCompromissionePanel(settings)
 
 
 class TriageCompromissionePanel(IngestModuleIngestJobSettingsPanel):
-    """Le due impostazioni dell'analisi. (Non si puo' usare un attributo
+    """Le impostazioni dell'analisi. (Non si puo' usare un attributo
     chiamato 'settings': Jython lo confonde con getSettings().)"""
 
     def __init__(self, impostazioni):
@@ -286,7 +310,7 @@ class TriageCompromissionePanel(IngestModuleIngestJobSettingsPanel):
         except ERRORI:
             pass
         riga = Box.createHorizontalBox()
-        riga.add(JLabel(u'Giorni da considerare \u00abrecenti\u00bb:'))
+        riga.add(JLabel(_ui(u'Giorni da considerare \u00abrecenti\u00bb:')))
         riga.add(Box.createRigidArea(Dimension(8, 0)))
         self.campo_giorni = JSpinner(SpinnerNumberModel(max(1, min(3650, giorni)), 1, 3650, 1))
         self.campo_giorni.setPreferredSize(Dimension(70, 26))
@@ -294,18 +318,37 @@ class TriageCompromissionePanel(IngestModuleIngestJobSettingsPanel):
         riga.add(self.campo_giorni)
         riga.add(Box.createHorizontalGlue())
         self._aggiungi(riga)
-        self._nota(u'Contati dall\'ultima attivit\u00e0 della macchina.')
+        self._nota(_ui(u'Contati dall\'ultima attivit\u00e0 della macchina.'))
         self.add(Box.createRigidArea(Dimension(0, 12)))
-        self._aggiungi(JLabel(u'Accesso remoto autorizzato (RMM):'))
+        self._aggiungi(JLabel(_ui(u'Accesso remoto autorizzato (RMM):')))
         self.campo_rmm = JTextField(impostazioni.getSetting('rmm_autorizzati') or u'')
         self.campo_rmm.setPreferredSize(Dimension(280, 26))
         self.campo_rmm.setMaximumSize(Dimension(280, 26))
         self._aggiungi(self.campo_rmm)
-        self._nota(u'Nomi separati da virgola: TeamViewer, AnyDesk')
-        self._nota(u'Restano nel report ma non pesano sul verdetto.')
+        self._nota(_ui(u'Nomi separati da virgola: TeamViewer, AnyDesk'))
+        self._nota(_ui(u'Restano nel report ma non pesano sul verdetto.'))
         self.add(Box.createRigidArea(Dimension(0, 12)))
-        self._nota(u'Legge soltanto: non modifica l\'origine dati.')
-        self._nota(u'Il report va nella cartella Reports del caso.')
+        riga = Box.createHorizontalBox()
+        riga.add(JLabel(_ui(u'Lingua dei risultati:')))
+        riga.add(Box.createRigidArea(Dimension(8, 0)))
+        self.campo_lingua = JComboBox()
+        for sigla in tc_lingua.LINGUE:
+            self.campo_lingua.addItem(tc_lingua.NOMI[sigla])
+        scelta = None
+        try:
+            scelta = tc_lingua.valida(impostazioni.getSetting('lingua'))
+        except ERRORI:
+            pass
+        self.campo_lingua.setSelectedIndex(list(tc_lingua.LINGUE).index(scelta or LINGUA_SISTEMA))
+        self.campo_lingua.setPreferredSize(Dimension(110, 26))
+        self.campo_lingua.setMaximumSize(Dimension(110, 26))
+        riga.add(self.campo_lingua)
+        riga.add(Box.createHorizontalGlue())
+        self._aggiungi(riga)
+        self._nota(_ui(u'Vale per il messaggio, l\'albero e il report.'))
+        self.add(Box.createRigidArea(Dimension(0, 12)))
+        self._nota(_ui(u'Legge soltanto: non modifica l\'origine dati.'))
+        self._nota(_ui(u'Il report va nella cartella Reports del caso.'))
 
     def _aggiungi(self, componente):
         componente.setAlignmentX(Component.LEFT_ALIGNMENT)
@@ -320,6 +363,12 @@ class TriageCompromissionePanel(IngestModuleIngestJobSettingsPanel):
         try:
             self.impostazioni_locali.setSetting('giorni_recenti', str(int(self.campo_giorni.getValue())))
             self.impostazioni_locali.setSetting('rmm_autorizzati', self.campo_rmm.getText() or u'')
+        except ERRORI:
+            pass
+        try:
+            indice = self.campo_lingua.getSelectedIndex()
+            if 0 <= indice < len(tc_lingua.LINGUE):
+                self.impostazioni_locali.setSetting('lingua', str(tc_lingua.LINGUE[indice]))
         except ERRORI:
             pass
         return self.impostazioni_locali
@@ -351,6 +400,17 @@ class TriageCompromissioneModule(DataSourceIngestModule):
     def startUp(self, context):
         self.context = context
 
+    def _lingua(self):
+        """La lingua dei risultati: quella scelta nel pannello, altrimenti
+        quella del sistema."""
+        scelta = None
+        try:
+            if self.impostazioni is not None:
+                scelta = tc_lingua.valida(self.impostazioni.getSetting('lingua'))
+        except ERRORI:
+            pass
+        return scelta or LINGUA_SISTEMA
+
     def _opzioni(self):
         opzioni = tc_controlli.Opzioni()
         if self.impostazioni is None:
@@ -362,7 +422,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
             if giorni:
                 opzioni.giorni_recenti = max(1, min(3650, int(float(unicode(giorni).strip().replace(u',', u'.')))))
         except ERRORI:
-            self.log(Level.WARNING, u'Impostazione "giorni recenti" non valida: uso 30')
+            self.log(Level.WARNING, tr(u'Impostazione "giorni recenti" non valida: uso 30'))
         try:
             rmm = self.impostazioni.getSetting('rmm_autorizzati')
             if rmm:
@@ -371,26 +431,28 @@ class TriageCompromissioneModule(DataSourceIngestModule):
                         re.split(u'[,;\\n\\r\\t\uff0c\u3001]+', unicode(rmm)[:20000])]
                 opzioni.rmm_autorizzati = [x for x in nomi if x][:200]
         except ERRORI:
-            self.log(Level.WARNING, u'Impostazione "RMM autorizzati" non leggibile: ignorata')
+            self.log(Level.WARNING, tr(u'Impostazione "RMM autorizzati" non leggibile: ignorata'))
         return opzioni
 
     def process(self, dataSource, progressBar):
+        # da qui in poi, in questo thread, i testi escono nella lingua scelta
+        tc_lingua.imposta(self._lingua())
         try:
             return self._analizza(dataSource, progressBar)
         except ERRORI:
             # qualunque errore imprevisto: lo si dice all'utente invece di
             # lasciare che Autopsy segnali solo un generico errore del modulo
             traccia = _traccia()
-            self.log(Level.SEVERE, u'Triage non riuscito: ' + traccia)
-            self._messaggio(IngestMessage.MessageType.ERROR, u'Triage non riuscito su %s' % self._nome(dataSource),
+            self.log(Level.SEVERE, tr(u'Triage non riuscito: ') + traccia)
+            self._messaggio(IngestMessage.MessageType.ERROR, tr(u'Triage non riuscito su %s') % self._nome(dataSource),
                             u'<pre>%s</pre>' % tc_report._e(traccia))
             return IngestModule.ProcessResult.ERROR
 
     def _nome(self, dataSource):
         try:
-            return dataSource.getName() or u'origine dati'
+            return dataSource.getName() or tr(u'origine dati')
         except ERRORI:
-            return u'origine dati'
+            return tr(u'origine dati')
 
     def _analizza(self, dataSource, progressBar):
         progressBar.switchToIndeterminate()
@@ -398,7 +460,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         inizio = time.time()
         nome_origine = self._nome(dataSource)
         origine = OrigineAutopsy(dataSource, caso)
-        progressBar.progress(u'Cerco le installazioni di Windows')
+        progressBar.progress(tr(u'Cerco le installazioni di Windows'))
         radici, scartate = tc_origine.trova_radici(origine)
         per_radice = tc_controlli.NUMERO_PASSI + 1      # i controlli, piu' report e pubblicazione
         passi_totali = per_radice * len(radici)
@@ -412,7 +474,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         for numero, radice in enumerate(radici):
             if self.context.dataSourceIngestIsCancelled():
                 break
-            etichetta = u'' if len(radici) == 1 else u'[%d di %d] ' % (numero + 1, len(radici))
+            etichetta = u'' if len(radici) == 1 else tr(u'[%d di %d] ') % (numero + 1, len(radici))
             fatti[0] = numero * per_radice
 
             def avanza(testo, passo=False, etichetta=etichetta, limite=(numero + 1) * per_radice - 1):
@@ -432,30 +494,30 @@ class TriageCompromissioneModule(DataSourceIngestModule):
             except ERRORI:
                 esito = IngestModule.ProcessResult.ERROR
                 traccia = _traccia()
-                self.log(Level.SEVERE, u'Triage non riuscito: ' + traccia)
-                self._messaggio(IngestMessage.MessageType.ERROR, u'Triage non riuscito su %s' % nome_origine,
+                self.log(Level.SEVERE, tr(u'Triage non riuscito: ') + traccia)
+                self._messaggio(IngestMessage.MessageType.ERROR, tr(u'Triage non riuscito su %s') % nome_origine,
                                 u'<pre>%s</pre>' % tc_report._e(traccia))
                 continue
             if self.context.dataSourceIngestIsCancelled():
                 break       # analisi annullata: i risultati di prima restano come sono
             if scartate:
-                t.nota(u'Nell\'origine ci sono anche altre installazioni di Windows, non analizzate: %s.' % u', '.join(scartate[:5]))
+                t.nota(tr(u'Nell\'origine ci sono anche altre installazioni di Windows, non analizzate: %s.') % u', '.join(scartate[:5]))
             if self._vuoto(t):
                 self._messaggio(IngestMessage.MessageType.INFO,
-                                u'Triage: nessun artefatto di Windows in %s' % nome_origine,
-                                u'Non ho trovato n\u00e9 registro di sistema n\u00e9 registri eventi: il triage non \u00e8 stato eseguito.')
+                                tr(u'Triage: nessun artefatto di Windows in %s') % nome_origine,
+                                tr(u'Non ho trovato n\u00e9 registro di sistema n\u00e9 registri eventi: il triage non \u00e8 stato eseguito.'))
                 continue
             for e in t.errori:
-                self.log(Level.WARNING, u'Controllo non riuscito: ' + e)
+                self.log(Level.WARNING, tr(u'Controllo non riuscito: ') + e)
             try:
-                progressBar.progress(etichetta + u'Scrivo il report e i risultati', (numero + 1) * per_radice - 1)
+                progressBar.progress(etichetta + tr(u'Scrivo il report e i risultati'), (numero + 1) * per_radice - 1)
             except ERRORI:
                 pass
             percorso_report = None
             try:
                 percorso_report = self._report(t, caso, dataSource, numero, len(radici), scartate)
             except ERRORI:
-                self.log(Level.SEVERE, u'Report non scritto: ' + _traccia())
+                self.log(Level.SEVERE, tr(u'Report non scritto: ') + _traccia())
             # Da qui non si guarda piu' se l'utente ha annullato: scrivere i
             # risultati richiede un attimo, e fermarsi a meta' lascerebbe
             # nell'albero un verdetto con solo una parte dei suoi segnali.
@@ -464,10 +526,10 @@ class TriageCompromissioneModule(DataSourceIngestModule):
                 non_scritti = self._pubblica(t, caso, dataSource, percorso_report)
                 pubblicate += 1
             except ERRORI:
-                self.log(Level.SEVERE, u'Risultati non pubblicati: ' + _traccia())
+                self.log(Level.SEVERE, tr(u'Risultati non pubblicati: ') + _traccia())
             self._riepilogo(t, dataSource, percorso_report, origine.interrogazioni, non_scritti)
             try:
-                progressBar.progress(etichetta + u'Fatto', (numero + 1) * per_radice)
+                progressBar.progress(etichetta + tr(u'Fatto'), (numero + 1) * per_radice)
             except ERRORI:
                 pass
         # i risultati dell'analisi precedente si tolgono solo adesso, e solo
@@ -475,7 +537,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         # l'analisi e' stata annullata, restano
         if pubblicate:
             self._togli_vecchi()
-        self.log(Level.INFO, u'Triage completato in %.1f s' % (time.time() - inizio))
+        self.log(Level.INFO, tr(u'Triage completato in %.1f s') % (time.time() - inizio))
         return esito
 
     # ---- utilita' -----------------------------------------------------------
@@ -506,8 +568,8 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         decisivi = [s for s in t.segnali if s.peso == R.DECISIVO]
         conferme = [s for s in t.segnali if s.peso == R.DA_CONFERMARE]
         computer = tc_base.pulito(t.contesto.get('computer')) or self._nome(dataSource)
-        righe = [u'<b>%s</b><br>%s' % (tc_report._e(t.verdetto), tc_report._e(t.motivo_verdetto)),
-                 u'Segnali decisivi: %d - da confermare: %d' % (len(decisivi), len(conferme))]
+        righe = [u'<b>%s</b><br>%s' % (tc_report._e(tr(t.verdetto)), tc_report._e(t.motivo_verdetto)),
+                 tr(u'Segnali decisivi: %d - da confermare: %d') % (len(decisivi), len(conferme))]
         principali = sorted(decisivi, key=lambda s: s.ora)[:8]
         if not principali:
             principali = sorted(conferme, key=lambda s: s.ora)[:8]
@@ -516,26 +578,31 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         for a in t.avvisi[:3]:
             righe.append(u'<i>%s</i>' % tc_report._e(a))
         if t.errori:
-            righe.append(u'<i>%d controll%s non riuscit%s: i dettagli sono nel report e nel log di Autopsy.</i>'
-                         % (len(t.errori), u'o' if len(t.errori) == 1 else u'i', u'o' if len(t.errori) == 1 else u'i'))
+            if len(t.errori) == 1:
+                righe.append(tr(u'<i>1 controllo non riuscito: i dettagli sono nel report e nel log di Autopsy.</i>'))
+            else:
+                righe.append(tr(u'<i>%d controlli non riusciti: i dettagli sono nel report e nel log di Autopsy.</i>')
+                             % len(t.errori))
         if percorso_report:
-            righe.append(u'Report: %s' % tc_report._e(percorso_report))
+            righe.append(tr(u'Report: %s') % tc_report._e(percorso_report))
         else:
-            righe.append(u'<b>Il report non \u00e8 stato scritto</b>: vedi il log di Autopsy (Help &gt; Open Log Folder).')
+            righe.append(tr(u'<b>Il report non \u00e8 stato scritto</b>: vedi il log di Autopsy (Help &gt; Open Log Folder).'))
         if non_scritti == 0:
-            righe.append(u'Nell\'albero: Analysis Results &gt; Triage compromissione.')
-        elif non_scritti > 0:
-            righe.append(u'Nell\'albero: Analysis Results &gt; Triage compromissione. <b>%d segnal%s non %s stat%s '
-                         u'scritt%s nell\'albero</b> (vedi il log di Autopsy): il report li contiene tutti.'
-                         % ((non_scritti,) + ((u'e', u'\u00e8', u'o', u'o') if non_scritti == 1
-                                              else (u'i', u'sono', u'i', u'i'))))
+            righe.append(tr(u'Nell\'albero: Analysis Results &gt; Triage compromissione.'))
+        elif non_scritti == 1:
+            righe.append(tr(u'Nell\'albero: Analysis Results &gt; Triage compromissione. <b>1 segnale non \u00e8 stato '
+                         u'scritto nell\'albero</b> (vedi il log di Autopsy): il report li contiene tutti.'))
+        elif non_scritti > 1:
+            righe.append(tr(u'Nell\'albero: Analysis Results &gt; Triage compromissione. <b>%d segnali non sono stati '
+                         u'scritti nell\'albero</b> (vedi il log di Autopsy): il report li contiene tutti.')
+                         % non_scritti)
         else:
-            righe.append(u'<b>I risultati non sono stati scritti nell\'albero</b>: il report \u00e8 completo, il '
+            righe.append(tr(u'<b>I risultati non sono stati scritti nell\'albero</b>: il report \u00e8 completo, il '
                          u'motivo \u00e8 nel log di Autopsy (Help &gt; Open Log Folder). I risultati nell\'albero vengono '
-                         u'scritti da Autopsy 4.19 in poi.')
+                         u'scritti da Autopsy 4.19 in poi.'))
         tipo = IngestMessage.MessageType.WARNING if t.verdetto != tc_controlli.V_NESSUN_INDIZIO else IngestMessage.MessageType.INFO
-        self._messaggio(tipo, u'Triage di %s: %s' % (computer, t.verdetto), u'<br>'.join(righe))
-        self.log(Level.INFO, u'Triage di %s: %s (%.1f s, %d interrogazioni al database)'
+        self._messaggio(tipo, tr(u'Triage di %s: %s') % (computer, tr(t.verdetto)), u'<br>'.join(righe))
+        self.log(Level.INFO, tr(u'Triage di %s: %s (%.1f s, %d interrogazioni al database)')
                  % (computer, t.riassunto(), t.durata, interrogazioni))
 
     def _report(self, t, caso, dataSource, numero, quante, scartate):
@@ -543,7 +610,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         if not os.path.isdir(cartella):
             os.makedirs(cartella)
         computer = tc_base.pulito(t.contesto.get('computer'))
-        nome = re.sub(u'[^A-Za-z0-9_.-]+', u'_', computer or self._nome(dataSource))[:60] or u'origine'
+        nome = re.sub(u'[^A-Za-z0-9_.-]+', u'_', computer or self._nome(dataSource))[:60] or tr(u'origine')
         adesso = time.time()
         momento = time.localtime(adesso)
         quando = time.strftime('%Y%m%d_%H%M%S', momento)
@@ -575,10 +642,10 @@ class TriageCompromissioneModule(DataSourceIngestModule):
             finally:
                 f.close()
         except ERRORI:
-            self.log(Level.WARNING, u'File CSV non scritto: ' + _traccia())
+            self.log(Level.WARNING, tr(u'File CSV non scritto: ') + _traccia())
         # il report compare anche nell'albero di Autopsy, sotto Reports; se
         # la registrazione non riesce il file resta comunque nella cartella
-        nome_report = u'Triage compromissione: %s (%s) - %s' % (computer or self._nome(dataSource), t.verdetto,
+        nome_report = tr(u'Triage compromissione: %s (%s) - %s') % (computer or self._nome(dataSource), tr(t.verdetto),
                                                                 time.strftime('%Y-%m-%d %H:%M:%S', momento))
         try:
             try:
@@ -586,7 +653,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
             except TypeError:
                 caso.addReport(percorso, NOME_MODULO, nome_report)
         except ERRORI:
-            self.log(Level.WARNING, u'Report scritto ma non registrato nel caso: ' + _traccia())
+            self.log(Level.WARNING, tr(u'Report scritto ma non registrato nel caso: ') + _traccia())
         return percorso
 
     def _pubblica(self, t, caso, dataSource, percorso_report):
@@ -604,17 +671,17 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         lavagna = caso.getSleuthkitCase().getBlackboard()
         self._lavagna = lavagna
         STRINGA = BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.STRING
-        tipo_segnale = lavagna.getOrAddArtifactType(TIPO_SEGNALE, u'Triage compromissione: segnali',
+        tipo_segnale = lavagna.getOrAddArtifactType(TIPO_SEGNALE, tr(u'Triage compromissione: segnali'),
                                                     BlackboardArtifact.Category.ANALYSIS_RESULT)
-        tipo_verdetto = lavagna.getOrAddArtifactType(TIPO_VERDETTO, u'Triage compromissione: verdetto',
+        tipo_verdetto = lavagna.getOrAddArtifactType(TIPO_VERDETTO, tr(u'Triage compromissione: verdetto'),
                                                      BlackboardArtifact.Category.ANALYSIS_RESULT)
-        a_peso = lavagna.getOrAddAttributeType(u'TC_PESO', STRINGA, u'Peso')
-        a_controllo = lavagna.getOrAddAttributeType(u'TC_CONTROLLO', STRINGA, u'Controllo')
-        a_famiglia = lavagna.getOrAddAttributeType(u'TC_FAMIGLIA', STRINGA, u'Famiglia')
-        a_segnale = lavagna.getOrAddAttributeType(u'TC_SEGNALE_TESTO', STRINGA, u'Segnale')
-        a_dettagli = lavagna.getOrAddAttributeType(u'TC_DETTAGLI', STRINGA, u'Dettagli')
-        a_verdetto = lavagna.getOrAddAttributeType(u'TC_VERDETTO_TESTO', STRINGA, u'Verdetto')
-        a_motivo = lavagna.getOrAddAttributeType(u'TC_MOTIVO', STRINGA, u'Motivo')
+        a_peso = lavagna.getOrAddAttributeType(u'TC_PESO', STRINGA, tr(u'Peso'))
+        a_controllo = lavagna.getOrAddAttributeType(u'TC_CONTROLLO', STRINGA, tr(u'Controllo'))
+        a_famiglia = lavagna.getOrAddAttributeType(u'TC_FAMIGLIA', STRINGA, tr(u'Famiglia'))
+        a_segnale = lavagna.getOrAddAttributeType(u'TC_SEGNALE_TESTO', STRINGA, tr(u'Segnale'))
+        a_dettagli = lavagna.getOrAddAttributeType(u'TC_DETTAGLI', STRINGA, tr(u'Dettagli'))
+        a_verdetto = lavagna.getOrAddAttributeType(u'TC_VERDETTO_TESTO', STRINGA, tr(u'Verdetto'))
+        a_motivo = lavagna.getOrAddAttributeType(u'TC_MOTIVO', STRINGA, tr(u'Motivo'))
         a_computer = lavagna.getOrAddAttributeType(u'TC_COMPUTER', STRINGA, u'Computer')
         a_report = lavagna.getOrAddAttributeType(u'TC_REPORT', STRINGA, u'Report')
         a_quando = BlackboardAttribute.Type.TSK_DATETIME
@@ -652,10 +719,10 @@ class TriageCompromissioneModule(DataSourceIngestModule):
                             except ERRORI:
                                 pass
                 except ERRORI:
-                    self.log(Level.WARNING, u'Risultati precedenti non elencati (resteranno accanto ai nuovi): ' + _traccia())
-                    self._messaggio(IngestMessage.MessageType.WARNING, u'Triage: risultati precedenti non rimossi',
-                                    u'Non \u00e8 stato possibile elencare i risultati dell\'analisi precedente: restano '
-                                    u'nell\'albero accanto a quelli nuovi. Il report pi\u00f9 recente \u00e8 quello valido.')
+                    self.log(Level.WARNING, tr(u'Risultati precedenti non elencati (resteranno accanto ai nuovi): ') + _traccia())
+                    self._messaggio(IngestMessage.MessageType.WARNING, tr(u'Triage: risultati precedenti non rimossi'),
+                                    tr(u'Non \u00e8 stato possibile elencare i risultati dell\'analisi precedente: restano '
+                                    u'nell\'albero accanto a quelli nuovi. Il report pi\u00f9 recente \u00e8 quello valido.'))
         idlavoro = self.context.getJobId()
         nuovi = []
         non_scritti = 0
@@ -668,28 +735,29 @@ class TriageCompromissioneModule(DataSourceIngestModule):
                 except TypeError:
                     lavagna.postArtifact(risultato, NOME_MODULO)     # Autopsy 4.19
             except ERRORI:
-                self.log(Level.WARNING, u'Risultato scritto ma non annunciato: ' + _traccia())
+                self.log(Level.WARNING, tr(u'Risultato scritto ma non annunciato: ') + _traccia())
 
         try:
             # verdetto, sull'origine dati
             decisivi = len([s for s in t.segnali if s.peso == R.DECISIVO])
             conferme = len([s for s in t.segnali if s.peso == R.DA_CONFERMARE])
             computer = tc_base.pulito(t.contesto.get('computer'))
-            if (t.verdetto, t.motivo_verdetto, computer) not in self._verdetti_tenuti:
+            verdetto = tr(t.verdetto)
+            if (verdetto, t.motivo_verdetto, computer) not in self._verdetti_tenuti:
                 # "nessun indizio" non vuol dire "macchina pulita": il punteggio resta
                 # sconosciuto. (SCORE_NONE significherebbe "esaminato e buono" e, sugli
                 # stessi file, coprirebbe i punteggi "probabilmente notevole".)
                 punteggio = {tc_controlli.V_COMPROMESSA: Score.SCORE_NOTABLE,
                              tc_controlli.V_DA_VERIFICARE: Score.SCORE_LIKELY_NOTABLE}.get(t.verdetto, Score.SCORE_UNKNOWN)
                 attributi = ArrayList()
-                attributi.add(BlackboardAttribute(a_verdetto, NOME_MODULO, t.verdetto))
+                attributi.add(BlackboardAttribute(a_verdetto, NOME_MODULO, verdetto))
                 attributi.add(BlackboardAttribute(a_motivo, NOME_MODULO, t.motivo_verdetto))
                 attributi.add(BlackboardAttribute(a_computer, NOME_MODULO, computer))
                 attributi.add(BlackboardAttribute(a_segnale, NOME_MODULO,
-                                                  u'Segnali decisivi: %d, da confermare: %d' % (decisivi, conferme)))
+                                                  tr(u'Segnali decisivi: %d, da confermare: %d') % (decisivi, conferme)))
                 if percorso_report:
                     attributi.add(BlackboardAttribute(a_report, NOME_MODULO, percorso_report))
-                risultato = dataSource.newAnalysisResult(tipo_verdetto, punteggio, t.verdetto, tc_controlli.VERSIONE,
+                risultato = dataSource.newAnalysisResult(tipo_verdetto, punteggio, verdetto, tc_controlli.VERSIONE,
                                                          t.motivo_verdetto, attributi).getAnalysisResult()
                 nuovi.append(risultato)
             # segnali, ciascuno sul file da cui viene
@@ -706,24 +774,24 @@ class TriageCompromissioneModule(DataSourceIngestModule):
                     pass
                 try:
                     attributi = ArrayList()
-                    attributi.add(BlackboardAttribute(a_peso, NOME_MODULO, R.NOME_PESO[s.peso]))
+                    attributi.add(BlackboardAttribute(a_peso, NOME_MODULO, tr(R.NOME_PESO[s.peso])))
                     if s.ora and 0 < s.ora < 253402300800.0:      # una data vera (fino all'anno 9999)
                         attributi.add(BlackboardAttribute(a_quando, NOME_MODULO, long(s.ora)))
                     attributi.add(BlackboardAttribute(a_controllo, NOME_MODULO,
                                                       u'%02d. %s%s' % (s.controllo, s.titolo(),
-                                                                       u' (regola in pi\u00f9)' if s.extra else u'')))
-                    attributi.add(BlackboardAttribute(a_famiglia, NOME_MODULO, s.famiglia))
+                                                                       tr(u' (regola in pi\u00f9)') if s.extra else u'')))
+                    attributi.add(BlackboardAttribute(a_famiglia, NOME_MODULO, tr(s.famiglia)))
                     attributi.add(BlackboardAttribute(a_segnale, NOME_MODULO, s.descrizione[:1000]))
                     if s.dettagli:
                         attributi.add(BlackboardAttribute(a_dettagli, NOME_MODULO, s.dettagli[:4000]))
-                    risultato = contenuto.newAnalysisResult(tipo_segnale, punteggi[s.peso], R.NOME_PESO[s.peso],
-                                                            u'Controllo %d' % s.controllo, s.descrizione[:1000],
+                    risultato = contenuto.newAnalysisResult(tipo_segnale, punteggi[s.peso], tr(R.NOME_PESO[s.peso]),
+                                                            tr(u'Controllo %d') % s.controllo, s.descrizione[:1000],
                                                             attributi).getAnalysisResult()
                 except ERRORI:
                     # un segnale che non si scrive non deve far perdere gli altri
                     non_scritti += 1
                     if non_scritti <= 5:
-                        self.log(Level.WARNING, u'Segnale non scritto: ' + _traccia())
+                        self.log(Level.WARNING, tr(u'Segnale non scritto: ') + _traccia())
                     continue
                 nuovi.append(risultato)
         except ERRORI:
@@ -736,7 +804,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
                     pass
             raise
         if non_scritti > 5:
-            self.log(Level.WARNING, u'In tutto %d segnali non scritti' % non_scritti)
+            self.log(Level.WARNING, tr(u'In tutto %d segnali non scritti') % non_scritti)
         for risultato in nuovi:
             pubblica(risultato)
         return non_scritti
@@ -751,9 +819,9 @@ class TriageCompromissioneModule(DataSourceIngestModule):
             except ERRORI:
                 falliti += 1
                 if falliti == 1:
-                    self.log(Level.WARNING, u'Risultato precedente non rimosso: ' + _traccia())
+                    self.log(Level.WARNING, tr(u'Risultato precedente non rimosso: ') + _traccia())
         if falliti:
-            self.log(Level.WARNING, u'%d risultati dell\'analisi precedente non rimossi: restano accanto ai nuovi' % falliti)
-            self._messaggio(IngestMessage.MessageType.WARNING, u'Triage: risultati precedenti non rimossi',
-                            u'%d risultati dell\'analisi precedente non sono stati rimossi e restano nell\'albero '
-                            u'accanto a quelli nuovi. Il report pi\u00f9 recente \u00e8 quello valido.' % falliti)
+            self.log(Level.WARNING, tr(u'%d risultati dell\'analisi precedente non rimossi: restano accanto ai nuovi') % falliti)
+            self._messaggio(IngestMessage.MessageType.WARNING, tr(u'Triage: risultati precedenti non rimossi'),
+                            tr(u'%d risultati dell\'analisi precedente non sono stati rimossi e restano nell\'albero '
+                            u'accanto a quelli nuovi. Il report pi\u00f9 recente \u00e8 quello valido.') % falliti)

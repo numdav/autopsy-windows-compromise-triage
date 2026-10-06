@@ -1,0 +1,4 @@
+# Text files are stored and checked out with LF line endings on every system:
+# Jython, Python and the current Windows editors all read them.
+* text=auto eol=lf
+*.png binary

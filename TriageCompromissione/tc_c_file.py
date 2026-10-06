@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_c_file - Controlli che leggono file del disco: Prefetch, attivita'
 pianificate, cartelle di esecuzione automatica, WMI, CryptnetUrlCache,
@@ -14,6 +15,7 @@ import tc_c_registro
 import tc_regole as R
 import tc_origine
 from tc_base import testo_orario as T, ERRORI, INVERSIONE
+from tc_lingua import tr
 
 _ESTENSIONI_PROGRAMMI = [u'exe', u'dll', u'ps1', u'bat', u'cmd', u'vbs', u'vbe', u'js', u'jse', u'hta', u'scr',
                          u'msi', u'wsf', u'com', u'pif']
@@ -49,7 +51,7 @@ def _dimensione(n):
         return u'%.1f MB' % (n / (1024.0 * 1024))
     if n >= 1024:
         return u'%d KB' % (n / 1024)
-    return u'%d byte' % n
+    return tr(u'%d byte') % n
 
 
 def _righe_con(t, e, marcatori, massimo=512 * 1024 * 1024):
@@ -121,20 +123,20 @@ def prefetch(t):
     attivo = t.contesto.get('prefetch_attivo', True)
     if not trovati:
         if t.radice.piatta:
-            t.esito(21, 'assente', u'nessun file .pf trovato')
+            t.esito(21, 'assente', tr(u'nessun file .pf trovato'))
             return
         cartella = t.radice.file(u'windows/', u'prefetch', cartelle=True)
         if not cartella:
-            t.esito(21, 'assente', u'cartella Windows\\Prefetch non trovata')
+            t.esito(21, 'assente', tr(u'cartella Windows\\Prefetch non trovata'))
         elif server:
-            t.esito(21, 'fatto', u'cartella vuota: sui Windows Server il Prefetch \u00e8 spento di default')
+            t.esito(21, 'fatto', tr(u'cartella vuota: sui Windows Server il Prefetch \u00e8 spento di default'))
         else:
             t.fatto(21)
             t.segnala(21, R.DA_CONFERMARE, R.F_ANTIFORENSE,
-                      u'La cartella Prefetch \u00e8 vuota su un Windows client' +
-                      (u'' if attivo else u' (il Prefetch \u00e8 disattivato nel registro: EnablePrefetcher = 0)'),
-                      u'Su un client in uso la cartella contiene centinaia di file: vuota, \u00e8 stata ripulita '
-                      u'oppure il Prefetch \u00e8 stato spento.', 0, cartella[0])
+                      tr(u'La cartella Prefetch \u00e8 vuota su un Windows client') +
+                      (u'' if attivo else tr(u' (il Prefetch \u00e8 disattivato nel registro: EnablePrefetcher = 0)')),
+                      tr(u'Su un client in uso la cartella contiene centinaia di file: vuota, \u00e8 stata ripulita '
+                      u'oppure il Prefetch \u00e8 stato spento.'), 0, cartella[0])
         return
     letti = 0
     errori = 0
@@ -142,7 +144,7 @@ def prefetch(t):
         if t.annullato():
             return
         if i % 100 == 0:
-            t.avanza(u'Prefetch: %d di %d' % (i, len(trovati)))
+            t.avanza(tr(u'Prefetch: %d di %d') % (i, len(trovati)))
         if e.dimensione < 100:
             continue
         if e.dimensione > 8 * 1024 * 1024:
@@ -161,22 +163,22 @@ def prefetch(t):
         percorso = pf.percorso_leggibile() or pf.eseguibile
         ultimo = pf.ultime[0] if pf.ultime else 0
         t.esecuzione(percorso, ultimo, u'Prefetch', conteggio=pf.esecuzioni, elemento=e, orari=list(pf.ultime))
-    t.contesto['prefetch'] = u'%d file letti' % letti + (u', %d non leggibili' % errori if errori else u'')
+    t.contesto['prefetch'] = tr(u'%d file letti') % letti + (tr(u', %d non leggibili') % errori if errori else u'')
     t.fatto(21)
     if errori:
-        testo = (u'%d file del Prefetch su %d non si sono lasciati leggere o interpretare (danneggiati o in un formato '
-                 u'non riconosciuto): le esecuzioni che registravano mancano.' % (errori, letti + errori))
+        testo = (tr(u'%d file del Prefetch su %d non si sono lasciati leggere o interpretare (danneggiati o in un formato '
+                 u'non riconosciuto): le esecuzioni che registravano mancano.') % (errori, letti + errori))
         if errori > letti:
             t.avviso(testo)
         else:
             t.nota(testo)
     if not server and not t.radice.piatta and letti < 10:
         t.segnala(21, R.DA_CONFERMARE, R.F_ANTIFORENSE,
-                  u'Il Prefetch contiene solo %d file su un Windows client' % letti,
-                  u'Su un client in uso ce ne sono centinaia: pochi file indicano una pulizia recente o un sistema appena installato.',
+                  tr(u'Il Prefetch contiene solo %d file su un Windows client') % letti,
+                  tr(u'Su un client in uso ce ne sono centinaia: pochi file indicano una pulizia recente o un sistema appena installato.'),
                   0, trovati[0])
     if not attivo and not server:
-        t.segnala(21, R.INFORMATIVO, R.F_ANTIFORENSE, u'Il Prefetch \u00e8 disattivato nel registro (EnablePrefetcher = 0)',
+        t.segnala(21, R.INFORMATIVO, R.F_ANTIFORENSE, tr(u'Il Prefetch \u00e8 disattivato nel registro (EnablePrefetcher = 0)'),
                   u'', 0, t.contesto.get('hive_system'))
 
 
@@ -229,7 +231,7 @@ def avvio_automatico(t):
             nome = e.nome.lower()
             if nome == u'desktop.ini' or e.dimensione == 0:
                 continue
-            dove = u'Esecuzione automatica di ' + (_utente_da_cartella(e.cartella) or u'tutti gli utenti')
+            dove = tr(u'Esecuzione automatica di ') + (_utente_da_cartella(e.cartella) or tr(u'tutti gli utenti'))
             peso = 0
             motivo = u''
             comando = e.nome
@@ -245,7 +247,7 @@ def avvio_automatico(t):
                     destinazione = c['destinazione'] or c['relativo']
                     comando = (destinazione + u' ' + c['argomenti']).strip()
                     peso, motivo = tc_c_registro.giudica_persistenza(
-                        t, 19, u'Collegamento in Esecuzione automatica', e.nome, destinazione, c['argomenti'],
+                        t, 19, tr(u'Collegamento in Esecuzione automatica'), e.nome, destinazione, c['argomenti'],
                         e.creato, e)
                 elif c is not None and c['argomenti'].strip():
                     # La destinazione sta solo nell'elenco degli elementi della
@@ -253,21 +255,21 @@ def avvio_automatico(t):
                     # argomenti: si giudicano come se li ricevesse cmd.
                     g = R.valuta_comando(u'cmd.exe', c['argomenti'])
                     peso = R.DECISIVO if g.livello >= 3 else R.DA_CONFERMARE
-                    motivo = u'collegamento con argomenti la cui destinazione non \u00e8 leggibile'
+                    motivo = tr(u'collegamento con argomenti la cui destinazione non \u00e8 leggibile')
                     if g.motivi:
                         motivo += u': ' + g.motivo()
-                    comando = u'(destinazione non leggibile) ' + c['argomenti']
+                    comando = tr(u'(destinazione non leggibile) ') + c['argomenti']
                     t.segnala(19, peso, R.F_PERSISTENZA, u'%s: %s (%s)' % (dove, e.nome, motivo),
-                              u'%s\nArgomenti: %s\nCreato: %s (UTC)' % (e.percorso, c['argomenti'][:1500], T(e.creato)),
+                              tr(u'%s\nArgomenti: %s\nCreato: %s (UTC)') % (e.percorso, c['argomenti'][:1500], T(e.creato)),
                               e.creato, e)
             elif nome.rsplit(u'.', 1)[-1] in _ESTENSIONI_PROGRAMMI:
                 peso = R.DA_CONFERMARE
-                motivo = u'programma o script messo direttamente nella cartella Esecuzione automatica'
+                motivo = tr(u'programma o script messo direttamente nella cartella Esecuzione automatica')
                 t.segnala(19, peso, R.F_PERSISTENZA, u'%s: %s (%s)' % (dove, e.nome, motivo),
-                          u'%s\nCreato: %s (UTC)' % (e.percorso, T(e.creato)), e.creato, e)
+                          tr(u'%s\nCreato: %s (UTC)') % (e.percorso, T(e.creato)), e.creato, e)
             righe.append([dove, u'Startup', e.nome, comando[:300], R.NOME_PESO.get(peso, u''), motivo])
-    t.tabella(19, u'Avvio automatico: chiavi Run e cartelle Esecuzione automatica',
-              [u'Dove', u'Chiave', u'Nome', u'Comando', u'Peso', u'Motivo'], righe[:150])
+    t.tabella(19, tr(u'Avvio automatico: chiavi Run e cartelle Esecuzione automatica'),
+              [tr(u'Dove'), tr(u'Chiave'), tr(u'Nome'), tr(u'Comando'), tr(u'Peso'), tr(u'Motivo')], righe[:150])
 
 
 # --------------------------------------------------------------------------
@@ -301,7 +303,7 @@ def _giudica_consumer(testo):
 def wmi(t):
     trovati = t.radice.file(u'windows/system32/wbem/repository/', u'objects.data', sotto=True, ovunque=True)
     if not trovati:
-        t.esito(20, 'assente', u'repository WMI (OBJECTS.DATA) non trovato')
+        t.esito(20, 'assente', tr(u'repository WMI (OBJECTS.DATA) non trovato'))
         return
     eventi = {}
     if t.raccolta is not None:
@@ -314,10 +316,10 @@ def wmi(t):
     righe = []
     for e in trovati:
         if e.dimensione > 2 * 1024 * 1024 * 1024:
-            t.avviso(u'Il repository WMI (%s) \u00e8 di %s: troppo grande per essere letto, le sottoscrizioni WMI non '
-                     u'sono state controllate.' % (e.percorso, _dimensione(e.dimensione)))
+            t.avviso(tr(u'Il repository WMI (%s) \u00e8 di %s: troppo grande per essere letto, le sottoscrizioni WMI non '
+                     u'sono state controllate.') % (e.percorso, _dimensione(e.dimensione)))
             continue
-        t.avanza(u'Sottoscrizioni WMI: lettura del repository (%s)' % _dimensione(e.dimensione))
+        t.avanza(tr(u'Sottoscrizioni WMI: lettura del repository (%s)') % _dimensione(e.dimensione))
         try:
             legami = tc_artefatti.wmi_sottoscrizioni(e.leggi, e.dimensione)
         except ERRORI, ex:
@@ -326,8 +328,8 @@ def wmi(t):
         finally:
             e.chiudi()
         if not getattr(legami, 'completo', True):
-            t.avviso(u'Il repository WMI (%s) contiene un numero anomalo di oggetti (file danneggiato o alterato): '
-                     u'l\'elenco delle sottoscrizioni pu\u00f2 essere incompleto.' % e.percorso)
+            t.avviso(tr(u'Il repository WMI (%s) contiene un numero anomalo di oggetti (file danneggiato o alterato): '
+                     u'l\'elenco delle sottoscrizioni pu\u00f2 essere incompleto.') % e.percorso)
         for v in legami:
             chiave = (v['tipo'].lower(), v['nome'].lower())
             if chiave in _WMI_INNOCUI:
@@ -338,25 +340,25 @@ def wmi(t):
             if esegue:
                 forte = _RX_WMI_FORTE.search(v['testo'] or u'')
                 peso = R.DECISIVO if forte else R.DA_CONFERMARE
-                cosa = u'esegue %s' % (u'uno script' if v['tipo'].startswith(u'Active') else u'un comando')
+                cosa = tr(u'esegue %s') % (tr(u'uno script') if v['tipo'].startswith(u'Active') else tr(u'un comando'))
                 if forte:
-                    cosa += u' (contiene \u00ab%s\u00bb)' % forte.group(1)
+                    cosa += tr(u' (contiene \u00ab%s\u00bb)') % forte.group(1)
                 peso_r, motivo_r, chiaro = _giudica_consumer(v['testo'])
                 if peso_r >= R.DA_CONFERMARE and motivo_r:
                     peso = max(peso, peso_r)
                     cosa += u' (%s)' % motivo_r
             else:
                 peso = R.INFORMATIVO
-                cosa = u'consumer di tipo %s' % v['tipo']
+                cosa = tr(u'consumer di tipo %s') % v['tipo']
             t.segnala(20, peso, R.F_PERSISTENZA,
-                      u'Sottoscrizione WMI \u00ab%s\u00bb legata al filtro \u00ab%s\u00bb: %s' % (v['nome'], v['filtro'], cosa),
-                      u'Filtro: %s\n%s%s\n\nTrovata nel repository: pu\u00f2 essere una voce gi\u00e0 rimossa.%s'
-                      % (v['interrogazione'] or u'(interrogazione non trovata)', (v['testo'] or u'')[:1800],
-                         (u'\nComando in chiaro: ' + u' '.join(chiaro.split())[:1500]) if chiaro else u'',
-                         u' Registrata il %s (evento 5861).' % T(ora) if ora else u''), ora, e)
+                      tr(u'Sottoscrizione WMI \u00ab%s\u00bb legata al filtro \u00ab%s\u00bb: %s') % (v['nome'], v['filtro'], cosa),
+                      tr(u'Filtro: %s\n%s%s\n\nTrovata nel repository: pu\u00f2 essere una voce gi\u00e0 rimossa.%s')
+                      % (v['interrogazione'] or tr(u'(interrogazione non trovata)'), (v['testo'] or u'')[:1800],
+                         (tr(u'\nComando in chiaro: ') + u' '.join(chiaro.split())[:1500]) if chiaro else u'',
+                         tr(u' Registrata il %s (evento 5861).') % T(ora) if ora else u''), ora, e)
             righe.append([v['nome'], v['tipo'], v['filtro'], v['interrogazione'][:200], T(ora), R.NOME_PESO[peso]])
-    t.tabella(20, u'Sottoscrizioni WMI permanenti', [u'Consumer', u'Tipo', u'Filtro', u'Interrogazione', u'Registrata (5861)', u'Peso'],
-              righe, u'Escluse le due sottoscrizioni predefinite di Windows (SCM Event Log Consumer, BVTConsumer).')
+    t.tabella(20, tr(u'Sottoscrizioni WMI permanenti'), [tr(u'Consumer'), tr(u'Tipo'), tr(u'Filtro'), tr(u'Interrogazione'), tr(u'Registrata (5861)'), tr(u'Peso')],
+              righe, tr(u'Escluse le due sottoscrizioni predefinite di Windows (SCM Event Log Consumer, BVTConsumer).'))
     t.fatto(20)
 
 
@@ -366,11 +368,11 @@ def wmi(t):
 
 def cryptnet(t):
     if t.radice.piatta:
-        t.esito(24, 'non verificabile', u'serve la struttura delle cartelle')
+        t.esito(24, 'non verificabile', tr(u'serve la struttura delle cartelle'))
         return
     trovati = t.radice.file(u'%cryptneturlcache/content/', u'%')
     if not trovati:
-        t.esito(24, 'assente', u'nessuna cartella CryptnetUrlCache\\Content trovata')
+        t.esito(24, 'assente', tr(u'nessuna cartella CryptnetUrlCache\\Content trovata'))
         return
     righe = []
     for e in trovati:
@@ -396,15 +398,16 @@ def cryptnet(t):
             peso = R.INFORMATIVO        # di solito la pagina di un captive portal o di un proxy
         else:
             peso = R.DA_CONFERMARE
+        mostrato = tr(tipo)
         t.segnala(24, peso, R.F_ESECUZIONE,
-                  u'%s nella cache dei download di certutil: %s' % (tipo[0].upper() + tipo[1:], url or e.nome),
-                  u'%s\nCreato: %s (UTC) - %s\nLa cartella di norma contiene solo certificati e liste di revoca: '
-                  u'un programma qui \u00e8 stato scaricato con certutil o con le stesse API.' %
+                  tr(u'%s nella cache dei download di certutil: %s') % (mostrato[0].upper() + mostrato[1:], url or e.nome),
+                  tr(u'%s\nCreato: %s (UTC) - %s\nLa cartella di norma contiene solo certificati e liste di revoca: '
+                  u'un programma qui \u00e8 stato scaricato con certutil o con le stesse API.') %
                   (e.percorso, T(e.creato), _dimensione(e.dimensione)), e.creato, e)
-        righe.append([e.percorso, tipo, url, T(e.creato), _dimensione(e.dimensione)])
-    t.tabella(24, u'CryptnetUrlCache: contenuti che non sono certificati',
-              [u'File', u'Contenuto', u'URL di origine', u'Creato (UTC)', u'Dimensione'], righe,
-              u'File esaminati: %d.' % len(trovati))
+        righe.append([e.percorso, mostrato, url, T(e.creato), _dimensione(e.dimensione)])
+    t.tabella(24, tr(u'CryptnetUrlCache: contenuti che non sono certificati'),
+              [u'File', tr(u'Contenuto'), tr(u'URL di origine'), tr(u'Creato (UTC)'), tr(u'Dimensione')], righe,
+              tr(u'File esaminati: %d.') % len(trovati))
     t.fatto(24)
 
 
@@ -414,25 +417,25 @@ def cryptnet(t):
 
 def residui(t):
     if t.radice.piatta:
-        t.esito(30, 'non verificabile', u'serve la struttura delle cartelle')
+        t.esito(30, 'non verificabile', tr(u'serve la struttura delle cartelle'))
         return
     righe = []
 
     def segnala(e, peso, testo, extra=False, famiglia=R.F_LATERALE):
-        stato = u' (cancellato)' if e.cancellato else u''
+        stato = tr(u' (cancellato)') if e.cancellato else u''
         anteprima = u''
         if e.dimensione and not e.cancellato:
             try:
                 inizio = t.inizio(e, 600)
                 if inizio and len([c for c in inizio if 32 <= ord(c) < 127 or c in '\r\n\t']) > len(inizio) * 0.85:
-                    anteprima = u'\nContenuto: ' + inizio.decode('cp1252', 'replace')[:300]
+                    anteprima = tr(u'\nContenuto: ') + inizio.decode('cp1252', 'replace')[:300]
                     if e.nome.lower().endswith(u'.bat') and ('__output' in inizio or '\\\\127.0.0.1\\' in inizio):
                         peso = R.DECISIVO
-                        testo += u'; il contenuto ridirige l\'output su __output'
+                        testo += tr(u'; il contenuto ridirige l\'output su __output')
             except ERRORI:
                 pass
         t.segnala(30, peso, famiglia, u'%s%s: %s' % (testo, stato, t.radice.relativo(e)),
-                  u'Creato: %s - modificato: %s (UTC) - %s%s' % (T(e.creato), T(e.modificato), _dimensione(e.dimensione), anteprima),
+                  tr(u'Creato: %s - modificato: %s (UTC) - %s%s') % (T(e.creato), T(e.modificato), _dimensione(e.dimensione), anteprima),
                   e.creato or e.modificato, e, extra)
         righe.append([t.radice.relativo(e) + stato, testo, T(e.creato), T(e.modificato), R.NOME_PESO[peso]])
 
@@ -441,14 +444,14 @@ def residui(t):
             continue
         dove = e.cartella.lower()
         if dove == t.radice.prefisso or dove.endswith(u'/windows/temp/') or dove.endswith(u'/windows/'):
-            segnala(e, R.DECISIVO, u'File di output di smbexec')
+            segnala(e, R.DECISIVO, tr(u'File di output di smbexec'))
         elif e.cancellato and u'$orphanfiles' in dove:
-            segnala(e, R.DA_CONFERMARE, u'File cancellato con il nome del file di output di smbexec '
-                    u'(la cartella in cui stava non \u00e8 pi\u00f9 ricostruibile)')
+            segnala(e, R.DA_CONFERMARE, tr(u'File cancellato con il nome del file di output di smbexec '
+                    u'(la cartella in cui stava non \u00e8 pi\u00f9 ricostruibile)'))
     # wmiexec e dcomexec scrivono l'output in C:\Windows\__<secondi>.<frazione>
     for e in t.radice.file(u'windows/', u'__%', cancellati=True):
         if _RX_USCITA_WMIEXEC.match(e.nome):
-            segnala(e, R.DECISIVO, u'File di output di wmiexec o dcomexec (Impacket)', True)
+            segnala(e, R.DECISIVO, tr(u'File di output di wmiexec o dcomexec (Impacket)'), True)
     quanti_tmp = 0
     quanti_exe = 0
     for e in t.radice.file([(u'windows/', False), (u'windows/temp/', False)], u'%', cancellati=True,
@@ -459,21 +462,21 @@ def residui(t):
             if nome == u'execute.bat':
                 # il nome da solo non basta: diventa decisivo se il contenuto
                 # ridirige l'output su __output (lo controlla segnala)
-                segnala(e, R.DA_CONFERMARE, u'File execute.bat in Windows\\Temp, il nome usato da smbexec fino al 2023')
+                segnala(e, R.DA_CONFERMARE, tr(u'File execute.bat in Windows\\Temp, il nome usato da smbexec fino al 2023'))
             elif _RX_OTTO_TMP.match(e.nome) and R.nome_casuale(e.nome[:8]) and quanti_tmp < 15:
                 quanti_tmp += 1
-                segnala(e, R.DA_CONFERMARE, u'File .tmp con nome di 8 lettere a caso in Windows\\Temp (output di atexec)')
+                segnala(e, R.DA_CONFERMARE, tr(u'File .tmp con nome di 8 lettere a caso in Windows\\Temp (output di atexec)'))
             continue
         if _RX_OTTO_BAT.match(e.nome) and R.nome_casuale(e.nome[:8]):
-            segnala(e, R.DA_CONFERMARE, u'Batch con nome di 8 lettere a caso in C:\\Windows (smbexec dal 2023)')
+            segnala(e, R.DA_CONFERMARE, tr(u'Batch con nome di 8 lettere a caso in C:\\Windows (smbexec dal 2023)'))
         elif _RX_OTTO_EXE.match(e.nome) and R.nome_casuale(e.nome[:8]) and quanti_exe < 15:
             quanti_exe += 1
-            segnala(e, R.DA_CONFERMARE, u'Eseguibile con nome di 8 lettere a caso in C:\\Windows (servizio di psexec.py o Metasploit)',
+            segnala(e, R.DA_CONFERMARE, tr(u'Eseguibile con nome di 8 lettere a caso in C:\\Windows (servizio di psexec.py o Metasploit)'),
                     True)
         elif nome in (u'psexesvc.exe', u'paexec.exe', u'remcomsvc.exe', u'csexecsvc.exe'):
-            segnala(e, R.DA_CONFERMARE, u'Servizio di PsExec o di un suo clone: qualcuno ha eseguito comandi da remoto su questa macchina',
+            segnala(e, R.DA_CONFERMARE, tr(u'Servizio di PsExec o di un suo clone: qualcuno ha eseguito comandi da remoto su questa macchina'),
                     True, R.F_LATERALE)
-    t.tabella(30, u'File residui dell\'esecuzione remota', [u'File', u'Cosa', u'Creato (UTC)', u'Modificato (UTC)', u'Peso'], righe)
+    t.tabella(30, tr(u'File residui dell\'esecuzione remota'), [u'File', tr(u'Cosa'), tr(u'Creato (UTC)'), tr(u'Modificato (UTC)'), tr(u'Peso')], righe)
     t.fatto(30)
 
 
@@ -487,7 +490,7 @@ def rmm(t):
         trovati = t.radice.con_nome([u'connection_trace.txt', u'ad.trace', u'ad_svc.trace', u'file_transfer_trace.txt',
                                      u'connections_incoming.txt', u'connections.txt', u'_logfile.log', u'_logfile_old.log'])
     except ERRORI, ex:
-        t.fallita(u'Ricerca dei log degli strumenti di accesso remoto non riuscita (controlli 34 e 35)', ex)
+        t.fallita(tr(u'Ricerca dei log degli strumenti di accesso remoto non riuscita (controlli 34 e 35)'), ex)
         trovati = []
     for e in trovati:
         registri.setdefault(e.nome.lower(), []).append(e)
@@ -505,7 +508,7 @@ def rmm(t):
             except ERRORI, errore:
                 t.non_letto(e, errore)
                 return None
-            t.nota(u'Il log %s \u00e8 molto grande (%s): ne sono stati letti gli ultimi %s.'
+            t.nota(tr(u'Il log %s \u00e8 molto grande (%s): ne sono stati letti gli ultimi %s.')
                    % (t.radice.relativo(e), _dimensione(e.dimensione), _dimensione(massimo)))
             return dati[dati.find('\n') + 1:]
         return t.contenuto(e)
@@ -515,10 +518,10 @@ def rmm(t):
         dati = testo_di(e, 32 * 1024 * 1024)
         if dati is None:
             continue
-        t.prova_rmm(u'AnyDesk', u'log delle connessioni', t.radice.relativo(e), e.modificato, e, 34)
+        t.prova_rmm(u'AnyDesk', tr(u'log delle connessioni'), t.radice.relativo(e), e.modificato, e, 34)
         for v in tc_artefatti.anydesk_connessioni(dati):
             t.sessione_rmm(u'AnyDesk', v['ora'],
-                           u'%s, autenticazione %s, ID remoto %s' % (u'in entrata' if v['verso'] == u'Incoming' else u'in uscita',
+                           tr(u'%s, autenticazione %s, ID remoto %s') % (tr(u'in entrata') if v['verso'] == u'Incoming' else tr(u'in uscita'),
                                                                     v['modo'], v['id']),
                            e, 34, v['verso'] == u'Incoming')
     for nome in (u'ad.trace', u'ad_svc.trace'):
@@ -527,7 +530,7 @@ def rmm(t):
                                      'file_transfer'])
             if dati is None:
                 continue
-            t.prova_rmm(u'AnyDesk', u'log di traccia', t.radice.relativo(e), e.modificato, e, 34)
+            t.prova_rmm(u'AnyDesk', tr(u'log di traccia'), t.radice.relativo(e), e.modificato, e, 34)
             visti = set()
             for v in tc_artefatti.anydesk_traccia(dati):
                 if v['tipo'] == 'ip':
@@ -535,27 +538,27 @@ def rmm(t):
                     if chiave in visti:
                         continue
                     visti.add(chiave)
-                    t.sessione_rmm(u'AnyDesk', v['ora'], u'collegamento dall\'indirizzo %s' % v['valore'], e, 34)
+                    t.sessione_rmm(u'AnyDesk', v['ora'], tr(u'collegamento dall\'indirizzo %s') % v['valore'], e, 34)
                 elif v['tipo'] == 'file':
-                    t.sessione_rmm(u'AnyDesk', v['ora'], u'trasferimento di file: %s' % v['valore'], e, 34, False)
+                    t.sessione_rmm(u'AnyDesk', v['ora'], tr(u'trasferimento di file: %s') % v['valore'], e, 34, False)
                 elif v['tipo'] == 'richiesta':
-                    t.sessione_rmm(u'AnyDesk', v['ora'], u'richiesta di sessione in entrata', e, 34)
+                    t.sessione_rmm(u'AnyDesk', v['ora'], tr(u'richiesta di sessione in entrata'), e, 34)
     for e in registri.get(u'file_transfer_trace.txt', []):
         dati = t.inizio(e, 512 * 1024)
         if not dati:
             continue
         for riga in tc_artefatti.testo_da_file(dati).splitlines()[:200]:
             if riga.strip():
-                t.sessione_rmm(u'AnyDesk', 0, u'trasferimento di file: %s' % riga.strip()[:300], e, 34, False)
+                t.sessione_rmm(u'AnyDesk', 0, tr(u'trasferimento di file: %s') % riga.strip()[:300], e, 34, False)
     # --- TeamViewer
     for e in registri.get(u'connections_incoming.txt', []):
         dati = testo_di(e, 32 * 1024 * 1024)
         if dati is None:
             continue
-        t.prova_rmm(u'TeamViewer', u'log delle connessioni in entrata', t.radice.relativo(e), e.modificato, e, 35)
+        t.prova_rmm(u'TeamViewer', tr(u'log delle connessioni in entrata'), t.radice.relativo(e), e.modificato, e, 35)
         for v in tc_artefatti.teamviewer_connessioni(dati, True):
             t.sessione_rmm(u'TeamViewer', v['inizio'],
-                           u'in entrata dall\'ID %s (%s), fino alle %s, utente locale %s, tipo %s'
+                           tr(u'in entrata dall\'ID %s (%s), fino alle %s, utente locale %s, tipo %s')
                            % (v['id'], v['nome'], T(v['fine']), v['utente'], v['tipo']), e, 35)
     for e in registri.get(u'connections.txt', []):
         if u'/teamviewer/' not in e.cartella.lower():
@@ -564,7 +567,7 @@ def rmm(t):
         if dati is None:
             continue
         for v in tc_artefatti.teamviewer_connessioni(dati, False):
-            t.sessione_rmm(u'TeamViewer', v['inizio'], u'in uscita verso l\'ID %s, tipo %s' % (v['id'], v['tipo']),
+            t.sessione_rmm(u'TeamViewer', v['inizio'], tr(u'in uscita verso l\'ID %s, tipo %s') % (v['id'], v['tipo']),
                            e, 35, False)
     for nome, elenco in registri.items():
         if not (nome.startswith(u'teamviewer') and nome.endswith(u'.log')):
@@ -573,7 +576,7 @@ def rmm(t):
             dati = _righe_con(t, e, ['punch received'])
             if dati is None:
                 continue
-            t.prova_rmm(u'TeamViewer', u'log di debug', t.radice.relativo(e), e.modificato, e, 35)
+            t.prova_rmm(u'TeamViewer', tr(u'log di debug'), t.radice.relativo(e), e.modificato, e, 35)
             visti = set()
             for ora, indirizzo in tc_artefatti.teamviewer_log(dati):
                 if indirizzo in visti:
@@ -581,7 +584,7 @@ def rmm(t):
                 visti.add(indirizzo)
                 # compare sia nelle sessioni in entrata sia in quelle in uscita:
                 # e' un indirizzo utile, non la prova di una sessione in entrata
-                t.sessione_rmm(u'TeamViewer', ora, u'connessione diretta con l\'indirizzo %s (\u00abpunch received\u00bb, ora locale della macchina)'
+                t.sessione_rmm(u'TeamViewer', ora, tr(u'connessione diretta con l\'indirizzo %s (\u00abpunch received\u00bb, ora locale della macchina)')
                                % indirizzo, e, 35, False)
     t.fatto(34, 35)
     # --- eseguibili degli RMM e degli strumenti noti, ovunque sul disco (per nome)
@@ -589,19 +592,19 @@ def rmm(t):
     try:
         trovati = t.radice.con_nome(frammenti, [u'exe', u'msi', u'ps1'], cancellati=True)
     except ERRORI, ex:
-        t.fallita(u'Ricerca per nome degli strumenti noti non riuscita (controlli 33 e 38)', ex)
+        t.fallita(tr(u'Ricerca per nome degli strumenti noti non riuscita (controlli 33 e 38)'), ex)
         trovati = []
     righe = []
     visti = set()
     for numero, e in enumerate(trovati):
-        if t.battito(numero, 5000, u'Strumenti noti sul disco: %d file esaminati'):
+        if t.battito(numero, 5000, tr(u'Strumenti noti sul disco: %d file esaminati')):
             return
         nome = e.nome.lower()
         percorso = t.radice.relativo(e)
         z = R.zona(percorso)
         strumento = R.trova_rmm(nome)
         if strumento and strumento != u'Quick Assist':
-            t.prova_rmm(strumento, u'file sul disco' + (u' (cancellato)' if e.cancellato else u''), percorso, e.creato, e, 33)
+            t.prova_rmm(strumento, tr(u'file sul disco') + (tr(u' (cancellato)') if e.cancellato else u''), percorso, e.creato, e, 33)
             continue
         peso, cosa = R.strumento(nome)
         if peso < R.DA_CONFERMARE or z == u'sistema' and nome in (u'psexesvc.exe',):
@@ -610,14 +613,14 @@ def rmm(t):
             continue
         visti.add((nome, e.cartella.lower()))
         t.segnala(38, peso, R.famiglia_strumento(nome),
-                  u'%s sul disco%s: %s' % (cosa[0].upper() + cosa[1:], u' (file cancellato)' if e.cancellato else u'', percorso),
-                  u'Creato: %s - modificato: %s (UTC) - %s' % (T(e.creato), T(e.modificato), _dimensione(e.dimensione)),
+                  tr(u'%s sul disco%s: %s') % (cosa[0].upper() + cosa[1:], tr(u' (file cancellato)') if e.cancellato else u'', percorso),
+                  tr(u'Creato: %s - modificato: %s (UTC) - %s') % (T(e.creato), T(e.modificato), _dimensione(e.dimensione)),
                   e.creato, e)
-        righe.append((e.creato, [percorso + (u' (cancellato)' if e.cancellato else u''), cosa, T(e.creato), T(e.modificato),
+        righe.append((e.creato, [percorso + (tr(u' (cancellato)') if e.cancellato else u''), cosa, T(e.creato), T(e.modificato),
                                  _dimensione(e.dimensione), R.NOME_PESO[peso]]))
     righe.sort(key=lambda x: -x[0])
-    t.tabella(38, u'Strumenti noti trovati sul disco (per nome)',
-              [u'File', u'Tipo', u'Creato (UTC)', u'Modificato (UTC)', u'Dimensione', u'Peso'], [x[1] for x in righe[:60]])
+    t.tabella(38, tr(u'Strumenti noti trovati sul disco (per nome)'),
+              [u'File', tr(u'Tipo'), tr(u'Creato (UTC)'), tr(u'Modificato (UTC)'), tr(u'Dimensione'), tr(u'Peso')], [x[1] for x in righe[:60]])
     _rinominati(t)
     t.fatto(33)
 
@@ -634,12 +637,12 @@ def _rinominati(t):
     try:
         candidati = t.radice.file(zone, u'%', estensioni=[u'exe', u'scr', u'com', u'dat', u'tmp', u'bin'])
     except ERRORI, ex:
-        t.fallita(u'Ricerca degli eseguibili rinominati nelle cartelle di appoggio non riuscita (controlli 33 e 38)', ex)
+        t.fallita(tr(u'Ricerca degli eseguibili rinominati nelle cartelle di appoggio non riuscita (controlli 33 e 38)'), ex)
         candidati = []
     candidati.sort(key=lambda e: -(e.creato or e.modificato))
     if len(candidati) > 400:
-        t.nota(u'Nelle cartelle di appoggio ci sono %d eseguibili: per cercare quelli rinominati (controllo 38) sono '
-               u'state lette le informazioni di versione dei 400 pi\u00f9 recenti.' % len(candidati))
+        t.nota(tr(u'Nelle cartelle di appoggio ci sono %d eseguibili: per cercare quelli rinominati (controllo 38) sono '
+               u'state lette le informazioni di versione dei 400 pi\u00f9 recenti.') % len(candidati))
     esaminati = 0
     for e in candidati[:400]:
         if t.annullato():
@@ -664,11 +667,11 @@ def _rinominati(t):
         percorso = t.radice.relativo(e)
         strumento = R.trova_rmm(testo)
         if strumento and strumento != u'Quick Assist' and not R.trova_rmm(nome):
-            t.prova_rmm(strumento, u'eseguibile rinominato', u'%s (in origine %s, %s)'
+            t.prova_rmm(strumento, tr(u'eseguibile rinominato'), tr(u'%s (in origine %s, %s)')
                         % (percorso, info.get(u'OriginalFilename', u'?'), info.get(u'CompanyName', u'?')), e.creato, e, 33)
             t.segnala(33, R.DA_CONFERMARE, R.F_RMM,
-                      u'%s rinominato: %s' % (strumento, percorso),
-                      u'Informazioni di versione: produttore \u00ab%s\u00bb, prodotto \u00ab%s\u00bb, nome originale \u00ab%s\u00bb.\nCreato: %s (UTC)'
+                      tr(u'%s rinominato: %s') % (strumento, percorso),
+                      tr(u'Informazioni di versione: produttore \u00ab%s\u00bb, prodotto \u00ab%s\u00bb, nome originale \u00ab%s\u00bb.\nCreato: %s (UTC)')
                       % (info.get(u'CompanyName', u''), info.get(u'ProductName', u''), info.get(u'OriginalFilename', u''), T(e.creato)),
                       e.creato, e)
             continue
@@ -678,12 +681,27 @@ def _rinominati(t):
             peso, cosa = R.strumento(info.get(chiave, u''))
             if peso >= R.DA_CONFERMARE:
                 t.segnala(38, peso, R.famiglia_strumento(info.get(chiave, u'')),
-                          u'%s rinominato: %s (in origine \u00ab%s\u00bb)' % (cosa[0].upper() + cosa[1:], percorso, info.get(chiave)),
-                          u'Informazioni di versione: produttore \u00ab%s\u00bb, prodotto \u00ab%s\u00bb, nome originale \u00ab%s\u00bb.\nCreato: %s (UTC)'
+                          tr(u'%s rinominato: %s (in origine \u00ab%s\u00bb)') % (cosa[0].upper() + cosa[1:], percorso, info.get(chiave)),
+                          tr(u'Informazioni di versione: produttore \u00ab%s\u00bb, prodotto \u00ab%s\u00bb, nome originale \u00ab%s\u00bb.\nCreato: %s (UTC)')
                           % (info.get(u'CompanyName', u''), info.get(u'ProductName', u''), info.get(u'OriginalFilename', u''), T(e.creato)),
                           e.creato, e)
                 break
     t.contesto['pe_esaminati'] = esaminati
+
+
+def _genere(prova):
+    """Il genere di una prova: 'eseguito', 'installato' oppure ''. Lo scrive
+    Triage.prova_rmm; per le prove costruite a mano, che non lo hanno, si
+    ricava dal tipo scritto in italiano."""
+    genere = prova.get('genere')
+    if genere is None:
+        tipo = prova.get('tipo') or u''
+        if tipo.startswith(u'eseguito'):
+            return 'eseguito'
+        if tipo.startswith((u'programma installato', u'servizio installato', u'installazione')):
+            return 'installato'
+        return ''
+    return genere
 
 
 def riepilogo_rmm(t):
@@ -694,7 +712,7 @@ def riepilogo_rmm(t):
         voce = t.rmm[strumento]
         prove = voce['prove']
         sessioni = sorted(voce['sessioni'], key=lambda s: s['ora'])
-        eseguito = [p for p in prove if p['tipo'].startswith(u'eseguito')]
+        eseguito = [p for p in prove if _genere(p) == 'eseguito']
         if strumento == u'Quick Assist' and not eseguito and not sessioni:
             continue
         tipi = []
@@ -704,9 +722,7 @@ def riepilogo_rmm(t):
         tempi = [p['ora'] for p in prove if p['ora']] + [s['ora'] for s in sessioni if s['ora']]
         in_entrata = [s for s in sessioni if s['in_entrata']]
         autorizzato = t.opzioni.autorizzato(strumento)
-        recente = [p for p in prove if t.recente(p['ora']) and (p['tipo'].startswith(u'programma installato')
-                                                                 or p['tipo'].startswith(u'servizio installato')
-                                                                 or p['tipo'].startswith(u'installazione'))]
+        recente = [p for p in prove if t.recente(p['ora']) and _genere(p) == 'installato']
         if autorizzato:
             peso = R.INFORMATIVO
         elif in_entrata or recente:
@@ -722,22 +738,24 @@ def riepilogo_rmm(t):
             controllo = 36
         elif not [p for p in prove if p['controllo'] == 32]:
             controllo = 33
-        testo = u'%s: %s' % (strumento, u', '.join(tipi[:6]) or u'tracce nei log')
+        testo = u'%s: %s' % (strumento, u', '.join(tipi[:6]) or tr(u'tracce nei log'))
         if in_entrata:
-            testo += u'. %d session%s o event%s in entrata, l\'ultim%s il %s' % (
-                len(in_entrata), u'e' if len(in_entrata) == 1 else u'i', u'o' if len(in_entrata) == 1 else u'i',
-                u'a', T(in_entrata[-1]['ora']) or u'(data non nota)')
+            ultima = T(in_entrata[-1]['ora']) or tr(u'(data non nota)')
+            if len(in_entrata) == 1:
+                testo += tr(u'. 1 sessione o evento in entrata, l\'ultima il %s') % ultima
+            else:
+                testo += tr(u'. %d sessioni o eventi in entrata, l\'ultima il %s') % (len(in_entrata), ultima)
         if autorizzato:
-            testo += u' - indicato come autorizzato'
+            testo += tr(u' - indicato come autorizzato')
         elif in_entrata:
-            testo += u'. Decisivo se lo strumento non \u00e8 autorizzato'
+            testo += tr(u'. Decisivo se lo strumento non \u00e8 autorizzato')
         elif recente:
-            testo += u'. Installato di recente: verifica se \u00e8 autorizzato'
+            testo += tr(u'. Installato di recente: verifica se \u00e8 autorizzato')
         else:
-            testo += u'. Nessuna sessione in entrata trovata: verifica se \u00e8 autorizzato'
+            testo += tr(u'. Nessuna sessione in entrata trovata: verifica se \u00e8 autorizzato')
         dettagli = [u'%s: %s%s' % (p['tipo'], p['dettaglio'], u' (%s)' % T(p['ora']) if p['ora'] else u'') for p in prove[:12]]
         if sessioni:
-            dettagli.append(u'Sessioni ed eventi:')
+            dettagli.append(tr(u'Sessioni ed eventi:'))
             dettagli.extend([u'%s  %s' % (T(s['ora']) or u'-', s['dettaglio']) for s in sessioni[-15:]])
         elemento = None
         for p in prove:
@@ -751,12 +769,12 @@ def riepilogo_rmm(t):
             righe_prove.append([strumento, p['tipo'], p['dettaglio'][:300], T(p['ora'])])
         for s in sessioni[-60:]:
             righe_sessioni.append([strumento, T(s['ora']), s['dettaglio'][:400]])
-    t.tabella(32, u'Strumenti di accesso remoto trovati', [u'Strumento', u'Prova', u'Dettaglio', u'Quando (UTC)'], righe_prove,
-              u'Per ogni strumento: \u00e8 autorizzato? Quando si \u00e8 collegato qualcuno? Cosa ha fatto? Come \u00e8 arrivato?')
-    t.tabella(34, u'Sessioni ed eventi degli strumenti di accesso remoto', [u'Strumento', u'Quando (UTC)', u'Dettaglio'], righe_sessioni)
+    t.tabella(32, tr(u'Strumenti di accesso remoto trovati'), [tr(u'Strumento'), tr(u'Prova'), tr(u'Dettaglio'), tr(u'Quando (UTC)')], righe_prove,
+              tr(u'Per ogni strumento: \u00e8 autorizzato? Quando si \u00e8 collegato qualcuno? Cosa ha fatto? Come \u00e8 arrivato?'))
+    t.tabella(34, tr(u'Sessioni ed eventi degli strumenti di accesso remoto'), [tr(u'Strumento'), tr(u'Quando (UTC)'), tr(u'Dettaglio')], righe_sessioni)
     installati = sorted(t.contesto.get('righe_installati') or [], key=lambda x: -x[0])
-    t.tabella(32, u'Programmi installati: i 30 pi\u00f9 recenti',
-              [u'Chiave scritta (UTC)', u'Programma', u'Produttore', u'Utente'],
+    t.tabella(32, tr(u'Programmi installati: i 30 pi\u00f9 recenti'),
+              [tr(u'Chiave scritta (UTC)'), tr(u'Programma'), tr(u'Produttore'), tr(u'Utente')],
               [[T(x[0]), x[1], x[2], x[3]] for x in installati[:30]])
 
 
@@ -776,7 +794,7 @@ def defender(t):
             gia.add(r['minaccia'])
     nuove = {}
     if len(trovati) > 2000:
-        t.nota(u'La cronologia dei rilevamenti di Defender contiene %d file: ne sono stati letti 2000.' % len(trovati))
+        t.nota(tr(u'La cronologia dei rilevamenti di Defender contiene %d file: ne sono stati letti 2000.') % len(trovati))
     for e in trovati[:2000]:
         if e.dimensione < 64 or e.dimensione > 4 * 1024 * 1024:
             continue
@@ -799,8 +817,8 @@ def defender(t):
                     g['risorse'].append(r)
     for m, g in nuove.items():
         t.segnala(37, R.peso_minaccia(m), R.F_ANTIVIRUS,
-                  u'Defender ha rilevato %s (%d file nella cronologia dei rilevamenti)' % (m, g['n']),
-                  u'Rilevamento che non compare nel registro eventi (forse gi\u00e0 uscito dal registro).\nPrimo file: %s (UTC)\n%s'
+                  tr(u'Defender ha rilevato %s (%d file nella cronologia dei rilevamenti)') % (m, g['n']),
+                  tr(u'Rilevamento che non compare nel registro eventi (forse gi\u00e0 uscito dal registro).\nPrimo file: %s (UTC)\n%s')
                   % (T(g['primo']), u'\n'.join(g['risorse'])[:1500]), g['primo'], g['elemento'])
     t.fatto(37)
 
@@ -830,7 +848,7 @@ def cronologia_powershell(t):
                 t.non_letto(e, errore)
                 continue
             dati = dati[dati.find('\n') + 1:]
-            t.nota(u'La cronologia di PowerShell di %s \u00e8 insolitamente grande (%s): ne sono stati letti gli ultimi 4 MB.'
+            t.nota(tr(u'La cronologia di PowerShell di %s \u00e8 insolitamente grande (%s): ne sono stati letti gli ultimi 4 MB.')
                    % (utente, _dimensione(e.dimensione)))
         else:
             dati = t.contenuto(e)
@@ -842,7 +860,7 @@ def cronologia_powershell(t):
             continue
         segnalate = 0
         for numero, riga in enumerate(testo.splitlines()):
-            if t.battito(numero, 5000, u'Cronologia di PowerShell di ' + utente + u': %d righe'):
+            if t.battito(numero, 5000, tr(u'Cronologia di PowerShell di ') + utente + tr(u': %d righe')):
                 return
             riga = riga.strip()
             if not riga:
@@ -855,12 +873,12 @@ def cronologia_powershell(t):
             if segnalate < 15 and trovato[0] >= R.DA_CONFERMARE:
                 segnalate += 1
                 if chiaro:
-                    chiaro = u'\nComando in chiaro: ' + u' '.join(chiaro.split())[:1200]
+                    chiaro = tr(u'\nComando in chiaro: ') + u' '.join(chiaro.split())[:1200]
                 t.segnala(25, trovato[0], trovato[1],
-                          u'Cronologia di PowerShell di %s, riga %d: %s' % (utente, numero + 1, trovato[2]),
-                          u'%s%s\nIl file non registra gli orari: l\'ultima modifica \u00e8 del %s (UTC).'
+                          tr(u'Cronologia di PowerShell di %s, riga %d: %s') % (utente, numero + 1, trovato[2]),
+                          tr(u'%s%s\nIl file non registra gli orari: l\'ultima modifica \u00e8 del %s (UTC).')
                           % (riga[:1500], chiaro, T(e.modificato)), 0, e, True)
-    t.tabella(25, u'Cronologia della console di PowerShell: righe segnalate', [u'Utente', u'Riga', u'Comando', u'Motivo', u'Peso'],
+    t.tabella(25, tr(u'Cronologia della console di PowerShell: righe segnalate'), [tr(u'Utente'), tr(u'Riga'), tr(u'Comando'), tr(u'Motivo'), tr(u'Peso')],
               righe[:80])
 
 
@@ -870,7 +888,7 @@ def cronologia_powershell(t):
 
 def appoggio(t):
     if t.radice.piatta:
-        t.esito(38, 'non verificabile', u'serve la struttura delle cartelle')
+        t.esito(38, 'non verificabile', tr(u'serve la struttura delle cartelle'))
         return
     zone = [(u'users/public/', True), (u'perflogs/', True), (u'windows/temp/', True), (u'programdata/', False),
             (u'tmp/', True), (u'temp/', True), (u'users/%/appdata/local/temp/', True), (u'users/%/downloads/', True)]
@@ -883,7 +901,7 @@ def appoggio(t):
     try:
         trovati = t.radice.file(zone, u'%', estensioni=_ESTENSIONI_PROGRAMMI + _ESTENSIONI_ARCHIVI)
     except ERRORI, ex:
-        t.fallita(u'Ricerca dei file nelle cartelle di appoggio non riuscita (controllo 38)', ex)
+        t.fallita(tr(u'Ricerca dei file nelle cartelle di appoggio non riuscita (controllo 38)'), ex)
         trovati = []
     # Zone.Identifier: da dove e' stato scaricato il file (flusso alternativo di NTFS)
     provenienze = {}
@@ -892,7 +910,7 @@ def appoggio(t):
             provenienze[(z.cartella.lower(), z.nome.lower()[:-len(u':zone.identifier')])] = z
     except ERRORI, ex:
         # manca solo l'indicazione di dove e' stato scaricato il file
-        t.registra(u'Ricerca dei flussi Zone.Identifier non riuscita: %r' % (ex,))
+        t.registra(tr(u'Ricerca dei flussi Zone.Identifier non riuscita: %r') % (ex,))
 
     def provenienza(e):
         z = provenienze.get((e.cartella.lower(), e.nome.lower()))
@@ -930,17 +948,17 @@ def appoggio(t):
         da_dove = provenienza(e)
         if INVERSIONE in e.nome:
             t.segnala(38, R.DA_CONFERMARE, R.F_FILE,
-                      u'Nome di file con il carattere che inverte il verso del testo: %s' % percorso,
-                      u'Il carattere U+202E fa leggere al contrario la fine del nome e camuffa l\'estensione vera (.%s).\n'
-                      u'Creato: %s - modificato: %s (UTC)' % (est, T(e.creato), T(e.modificato)), e.creato, e, True)
+                      tr(u'Nome di file con il carattere che inverte il verso del testo: %s') % percorso,
+                      tr(u'Il carattere U+202E fa leggere al contrario la fine del nome e camuffa l\'estensione vera (.%s).\n'
+                      u'Creato: %s - modificato: %s (UTC)') % (est, T(e.creato), T(e.modificato)), e.creato, e, True)
         if archivio and est in (u'vhd', u'vhdx', u'iso', u'img') and u'/hyper-v/' in dove:
             pass        # i dischi delle macchine virtuali di Hyper-V stanno li' di norma
         elif archivio and e.dimensione >= 100 * 1024 * 1024 and sospetta and grandi < 10:
             grandi += 1
-            nota = u'archivio di grandi dimensioni'
+            nota = tr(u'archivio di grandi dimensioni')
             t.segnala(38, R.DA_CONFERMARE, R.F_FILE,
-                      u'Archivio di %s in una cartella di appoggio: %s' % (_dimensione(e.dimensione), percorso),
-                      u'Creato: %s - modificato: %s (UTC). Un grande archivio qui pu\u00f2 essere dati pronti per l\'esfiltrazione.'
+                      tr(u'Archivio di %s in una cartella di appoggio: %s') % (_dimensione(e.dimensione), percorso),
+                      tr(u'Creato: %s - modificato: %s (UTC). Un grande archivio qui pu\u00f2 essere dati pronti per l\'esfiltrazione.')
                       % (T(e.creato), T(e.modificato)), e.creato, e)
         elif not archivio and sospetta and est != u'dll' and segnalati < 20:
             z = R.zona(percorso)
@@ -948,17 +966,17 @@ def appoggio(t):
                 and not nome.startswith((u'mpsigstub', u'mpam-', u'dismhost'))
             if (z == u'sospetta' or in_temp_di_windows) and not R.strumento_forense(nome):
                 segnalati += 1
-                nota = u'programma o script recente in una cartella di appoggio'
-                t.segnala(38, R.DA_CONFERMARE, R.F_FILE, u'Programma o script recente in una cartella di appoggio: %s' % percorso,
-                          u'Creato: %s - modificato: %s (UTC) - %s%s' % (T(e.creato), T(e.modificato), _dimensione(e.dimensione),
-                                                                        u'\nScaricato da: ' + da_dove if da_dove else u''),
+                nota = tr(u'programma o script recente in una cartella di appoggio')
+                t.segnala(38, R.DA_CONFERMARE, R.F_FILE, tr(u'Programma o script recente in una cartella di appoggio: %s') % percorso,
+                          tr(u'Creato: %s - modificato: %s (UTC) - %s%s') % (T(e.creato), T(e.modificato), _dimensione(e.dimensione),
+                                                                        tr(u'\nScaricato da: ') + da_dove if da_dove else u''),
                           e.creato, e)
         righe.append((quando, [percorso, T(e.creato), T(e.modificato), _dimensione(e.dimensione), da_dove, nota]))
     # eseguibili travestiti: contenuto MZ ed estensione innocua nelle cartelle sospette
     try:
         trovati = t.radice.file(sospette, u'%', estensioni=_ESTENSIONI_INNOCUE)
     except ERRORI, ex:
-        t.fallita(u'Ricerca dei programmi con un\'estensione innocua non riuscita (controllo 38)', ex)
+        t.fallita(tr(u'Ricerca dei programmi con un\'estensione innocua non riuscita (controllo 38)'), ex)
         trovati = []
     trovati.sort(key=lambda e: -max(e.creato, e.modificato))
     for e in trovati[:600]:
@@ -971,17 +989,17 @@ def appoggio(t):
             mascherati += 1
             percorso = t.radice.relativo(e)
             t.segnala(38, R.DA_CONFERMARE, R.F_FILE,
-                      u'Programma salvato con un\'estensione innocua: %s' % percorso,
-                      u'Il file inizia con MZ (eseguibile di Windows) ma ha estensione .%s.\nCreato: %s - modificato: %s (UTC) - %s'
+                      tr(u'Programma salvato con un\'estensione innocua: %s') % percorso,
+                      tr(u'Il file inizia con MZ (eseguibile di Windows) ma ha estensione .%s.\nCreato: %s - modificato: %s (UTC) - %s')
                       % (e.nome.rsplit(u'.', 1)[-1], T(e.creato), T(e.modificato), _dimensione(e.dimensione)), e.creato, e)
             righe.append((max(e.creato, e.modificato), [percorso, T(e.creato), T(e.modificato), _dimensione(e.dimensione),
-                                                         provenienza(e), u'eseguibile con estensione innocua']))
+                                                         provenienza(e), tr(u'eseguibile con estensione innocua')]))
     righe.sort(key=lambda x: -x[0])
-    t.tabella(38, u'Programmi, script e archivi recenti nelle cartelle di appoggio (i 60 pi\u00f9 recenti)',
-              [u'File', u'Creato (UTC)', u'Modificato (UTC)', u'Dimensione', u'Scaricato da (Zone.Identifier)', u'Nota'],
+    t.tabella(38, tr(u'Programmi, script e archivi recenti nelle cartelle di appoggio (i 60 pi\u00f9 recenti)'),
+              [u'File', tr(u'Creato (UTC)'), tr(u'Modificato (UTC)'), tr(u'Dimensione'), tr(u'Scaricato da (Zone.Identifier)'), tr(u'Nota')],
               [x[1] for x in righe[:60]],
-              u'Cartelle: Users\\Public, PerfLogs, Windows\\Temp, ProgramData, Temp e Downloads degli utenti. '
-              u'Finestra: gli ultimi %d giorni di attivit\u00e0 della macchina.' % t.opzioni.giorni_recenti)
+              tr(u'Cartelle: Users\\Public, PerfLogs, Windows\\Temp, ProgramData, Temp e Downloads degli utenti. '
+              u'Finestra: gli ultimi %d giorni di attivit\u00e0 della macchina.') % t.opzioni.giorni_recenti)
     t.fatto(38)
 
 
@@ -994,15 +1012,15 @@ def cestino(t):
     if not trovati:
         cartella = [] if t.radice.piatta else t.radice.file(u'', u'$recycle.bin', cartelle=True, tutti_i_volumi=True)
         if cartella:
-            t.esito(39, 'fatto', u'nessun file $I: il Cestino \u00e8 vuoto')
+            t.esito(39, 'fatto', tr(u'nessun file $I: il Cestino \u00e8 vuoto'))
         else:
-            t.esito(39, 'assente', u'cartella $Recycle.Bin non trovata')
+            t.esito(39, 'assente', tr(u'cartella $Recycle.Bin non trovata'))
         return
     voci = []
     if len(trovati) > 20000:
-        t.nota(u'Nel Cestino ci sono %d elementi: ne sono stati letti 20000.' % len(trovati))
+        t.nota(tr(u'Nel Cestino ci sono %d elementi: ne sono stati letti 20000.') % len(trovati))
     for numero, e in enumerate(trovati[:20000]):
-        if t.battito(numero, 2000, u'Cestino: %d elementi letti'):
+        if t.battito(numero, 2000, tr(u'Cestino: %d elementi letti')):
             return
         if e.dimensione < 28 or e.dimensione > 70000:
             continue
@@ -1027,9 +1045,9 @@ def cestino(t):
     for v in voci[-50:]:
         righe.append([T(v['ora']), v['utente'], v['percorso'][:300], _dimensione(v['dimensione'])])
     righe.reverse()
-    t.tabella(39, u'Cestino: le 50 cancellazioni pi\u00f9 recenti',
-              [u'Cancellato (UTC)', u'Utente', u'Percorso originale', u'Dimensione'], righe,
-              u'File $I letti: %d.' % len(voci))
+    t.tabella(39, tr(u'Cestino: le 50 cancellazioni pi\u00f9 recenti'),
+              [tr(u'Cancellato (UTC)'), tr(u'Utente'), tr(u'Percorso originale'), tr(u'Dimensione')], righe,
+              tr(u'File $I letti: %d.') % len(voci))
     # cancellazioni in blocco
     i = 0
     n = len(voci)
@@ -1047,9 +1065,9 @@ def cestino(t):
             # svuotare una cartella lo fa chiunque: conta solo una
             # cancellazione davvero massiccia e recente
             t.segnala(39, R.DA_CONFERMARE if (recente and len(gruppo) >= 200) else R.INFORMATIVO, R.F_FILE,
-                      u'Cancellazione in blocco: %d elementi in %d minuti da %s'
+                      tr(u'Cancellazione in blocco: %d elementi in %d minuti da %s')
                       % (len(gruppo), max(1, int((gruppo[-1]['ora'] - gruppo[0]['ora']) / 60) + 1), gruppo[0]['utente']),
-                      u'Dal %s al %s (UTC). Esempi:\n%s' % (T(gruppo[0]['ora']), T(gruppo[-1]['ora']),
+                      tr(u'Dal %s al %s (UTC). Esempi:\n%s') % (T(gruppo[0]['ora']), T(gruppo[-1]['ora']),
                                                            u'\n'.join([g['percorso'] for g in gruppo[:8]])),
                       gruppo[0]['ora'], gruppo[0]['elemento'])
             i = j
@@ -1063,8 +1081,8 @@ def cestino(t):
         peso, cosa = R.strumento(v['percorso'])
         if peso >= R.DA_CONFERMARE:
             t.segnala(39, peso, R.famiglia_strumento(v['percorso']),
-                      u'%s buttato nel Cestino: %s' % (cosa[0].upper() + cosa[1:], v['percorso']),
-                      u'Cancellato da %s il %s (UTC) - %s' % (v['utente'], T(v['ora']), _dimensione(v['dimensione'])),
+                      tr(u'%s buttato nel Cestino: %s') % (cosa[0].upper() + cosa[1:], v['percorso']),
+                      tr(u'Cancellato da %s il %s (UTC) - %s') % (v['utente'], T(v['ora']), _dimensione(v['dimensione'])),
                       v['ora'], v['elemento'])
     t.fatto(39)
 
@@ -1075,18 +1093,18 @@ def cestino(t):
 
 def shadow(t):
     if t.radice.piatta:
-        t.esito(40, 'non verificabile', u'serve la struttura delle cartelle')
+        t.esito(40, 'non verificabile', tr(u'serve la struttura delle cartelle'))
         return
     cartella = t.radice.file(u'', u'system volume information', cartelle=True, tutti_i_volumi=True)
     if not cartella:
-        t.esito(40, 'assente', u'cartella System Volume Information non presente nell\'origine')
+        t.esito(40, 'assente', tr(u'cartella System Volume Information non presente nell\'origine'))
         return
     copie = [e for e in t.radice.file(u'system volume information/', u'%' + _GUID_SHADOW, tutti_i_volumi=True)
              if len(e.nome) > len(_GUID_SHADOW) + 10]
     righe = [[e.nome[:38], T(e.creato), _dimensione(e.dimensione)] for e in sorted(copie, key=lambda e: e.creato)]
-    t.tabella(40, u'Copie shadow presenti', [u'Identificativo', u'Creata (UTC)', u'Dimensione'], righe,
-              u'Le copie possono contenere file e registri cancellati dopo: montale e confrontale. '
-              u'Autopsy non le apre da solo.')
+    t.tabella(40, tr(u'Copie shadow presenti'), [tr(u'Identificativo'), tr(u'Creata (UTC)'), tr(u'Dimensione')], righe,
+              tr(u'Le copie possono contenere file e registri cancellati dopo: montale e confrontale. '
+              u'Autopsy non le apre da solo.'))
     t.contesto['copie_shadow'] = len(copie)
     t.fatto(40)
     if copie:
@@ -1097,17 +1115,17 @@ def shadow(t):
             if vssadmin is None or x['ora'] > vssadmin['ora']:
                 vssadmin = x
     if vssadmin is not None and t.contesto.get('ripristino_spento'):
-        t.esito(40, 'fatto', u'nessuna copia: il ripristino di sistema \u00e8 disattivato')
+        t.esito(40, 'fatto', tr(u'nessuna copia: il ripristino di sistema \u00e8 disattivato'))
     elif vssadmin is not None and not t.recente(vssadmin['ora']):
-        t.esito(40, 'fatto', u'nessuna copia shadow; %s \u00e8 stato eseguito l\'ultima volta il %s, fuori dal periodo recente'
+        t.esito(40, 'fatto', tr(u'nessuna copia shadow; %s \u00e8 stato eseguito l\'ultima volta il %s, fuori dal periodo recente')
                 % (R.nome_base(vssadmin['percorso']), T(vssadmin['ora'])))
     elif vssadmin is not None:
         t.segnala(40, R.DA_CONFERMARE, R.F_ANTIFORENSE,
-                  u'Nessuna copia shadow sul disco e %s \u00e8 stato eseguito (ultimo avvio: %s)'
+                  tr(u'Nessuna copia shadow sul disco e %s \u00e8 stato eseguito (ultimo avvio: %s)')
                   % (R.nome_base(vssadmin['percorso']), T(vssadmin['ora'])),
-                  u'L\'esecuzione non prova la cancellazione: cerca \u00abdelete shadows\u00bb negli eventi 4688 e nei log di PowerShell. '
-                  u'Fonte: %s.' % vssadmin['fonte'], vssadmin['ora'], vssadmin['elemento'])
+                  tr(u'L\'esecuzione non prova la cancellazione: cerca \u00abdelete shadows\u00bb negli eventi 4688 e nei log di PowerShell. '
+                  u'Fonte: %s.') % vssadmin['fonte'], vssadmin['ora'], vssadmin['elemento'])
     elif t.contesto.get('ripristino_spento'):
-        t.esito(40, 'fatto', u'nessuna copia: il ripristino di sistema \u00e8 disattivato')
+        t.esito(40, 'fatto', tr(u'nessuna copia: il ripristino di sistema \u00e8 disattivato'))
     else:
-        t.esito(40, 'fatto', u'nessuna copia shadow trovata')
+        t.esito(40, 'fatto', tr(u'nessuna copia shadow trovata'))

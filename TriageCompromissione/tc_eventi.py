@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_eventi - Lettura dei registri eventi per il plugin "Triage
 compromissione".
@@ -14,6 +15,7 @@ import tc_evtx
 import tc_artefatti
 import tc_regole as R
 from tc_base import ERRORI
+from tc_lingua import tr
 
 # Eventi letti per ciascun registro (gli altri vengono saltati in fretta)
 ID_SICUREZZA = set([1102, 4624, 4625, 4648, 4688, 4697, 4698, 4699, 4702, 4720, 4722, 4724, 4726,
@@ -593,23 +595,26 @@ class Raccolta(object):
     def _defender_modifica(self, ev):
         d = ev['Dati']
         ident = ev['EventID']
+        esclusione = False
         if ident == 5007:
             nuovo = d.get(u'New Value') or u''
             basso = nuovo.lower()
             if u'\\exclusions\\' in basso:
-                testo = u'Esclusione aggiunta: ' + nuovo
+                testo = tr(u'Esclusione aggiunta: ') + nuovo
+                esclusione = True
             elif re.search(u'(disablerealtimemonitoring|disableantispyware|disablebehaviormonitoring'
                            u'|disableioavprotection|disablescriptscanning|disableantivirus)'
                            u'\\s*=\\s*0x1', basso):
-                testo = u'Protezione disattivata: ' + nuovo
+                testo = tr(u'Protezione disattivata: ') + nuovo
             else:
                 return
         elif ident == 5001:
-            testo = u'Protezione in tempo reale disattivata'
+            testo = tr(u'Protezione in tempo reale disattivata')
         else:
-            testo = u'Analisi antimalware disattivata'
+            testo = tr(u'Analisi antimalware disattivata')
         if len(self.defender_modifiche) < 500:
-            self.defender_modifiche.append({'ora': ev['Ora'], 'id': ident, 'testo': testo,
+            # 'esclusione' dice che cosa e' stato cambiato senza dipendere dalla lingua del testo
+            self.defender_modifiche.append({'ora': ev['Ora'], 'id': ident, 'testo': testo, 'esclusione': esclusione,
                                             'elemento': self._elemento})
 
     # ---- PowerShell -------------------------------------------------------
@@ -627,7 +632,7 @@ class Raccolta(object):
         intero = (d.get(u'MessageTotal') or u'1') == u'1'
         giudizio = R.ps_sospetto(testo, culla=intero)
         famiglia = None
-        if giudizio is not None and intero and len(testo) <= 2000 and giudizio[1].startswith(R._COSA_SCRIPT) \
+        if giudizio is not None and intero and len(testo) <= 2000 and giudizio[1].startswith(tr(R._COSA_SCRIPT)) \
                 and R.solo_cercato(testo):
             giudizio = None     # un comando breve che cerca lo script per nome: lo scrive chi indaga
         if intero and len(testo) <= 2000 and (giudizio is None or giudizio[0] < R.DECISIVO):
@@ -705,7 +710,7 @@ class Raccolta(object):
                 return
             estratto = riga[:600]
             if g.decodificato:
-                estratto += u'\nComando in chiaro: ' + u' '.join(g.decodificato.split())[:800]
+                estratto += tr(u'\nComando in chiaro: ') + u' '.join(g.decodificato.split())[:800]
             r = {'ora': ev['Ora'], 'n': 0, 'percorso': u'', 'motivo': motivo, 'peso': peso, 'famiglia': famiglia,
                  'estratto': estratto, 'utente': u'', 'fonte': u'400', 'elemento': self._elemento}
             self.powershell[chiave] = r

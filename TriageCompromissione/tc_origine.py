@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_origine - Da dove arrivano i file analizzati dal plugin "Triage
 compromissione".
@@ -16,6 +17,7 @@ import os
 import re
 
 from tc_base import ERRORI
+from tc_lingua import tr
 
 
 def modello_a_regex(modello):
@@ -234,7 +236,7 @@ class Radice(object):
 
     def descrizione(self):
         if self.piatta:
-            return u'file sparsi (nessuna cartella Windows riconosciuta)'
+            return tr(u'file sparsi (nessuna cartella Windows riconosciuta)')
         return self.prefisso
 
     def file(self, cartella, nome=u'%', sotto=False, cancellati=False, cartelle=False,
@@ -297,7 +299,7 @@ class Radice(object):
         if not self.piatta and p.lower().startswith(self.prefisso):
             if elemento.volume != self.volume:
                 # un altro volume dell'immagine: la lettera non si conosce
-                return u'[altro volume]' + p.replace(u'/', u'\\')
+                return tr(u'[altro volume]') + p.replace(u'/', u'\\')
             p = p[len(self.prefisso):]
             return u'C:\\' + p.replace(u'/', u'\\')
         return p

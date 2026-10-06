@@ -1,0 +1,10 @@
+Windows Compromise Triage for Autopsy (Triage compromissione Windows)
+Copyright 2026 Davide Numelli
+
+This product is an ingest module for Autopsy (https://www.autopsy.com/).
+It is an independent project: it is not affiliated with, nor endorsed by,
+the Autopsy project, Sleuth Kit Labs or Cyber Triage.
+
+The checklist it implements is built on the guides collected by Cyber
+Triage in the post "Windows Artifact Forensics Guides - The Master List"
+(10 September 2026) and on Cyber Triage's guide "How to Find WMI Consumers".

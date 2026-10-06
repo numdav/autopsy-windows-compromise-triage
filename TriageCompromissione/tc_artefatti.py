@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_artefatti - Lettori dei piccoli artefatti di Windows usati dal plugin
 "Triage compromissione" per Autopsy. Python 2.7 puro (Jython), nessuna
@@ -15,6 +16,7 @@ import time
 import calendar
 
 from tc_base import leggi, filetime_a_epoch, testo_sid, decodifica16, ERRORI
+from tc_lingua import tr, N_
 
 
 # --------------------------------------------------------------------------
@@ -226,7 +228,7 @@ def attivita_da_testo(t):
 def _stringa_con_lunghezza(d, p):
     n = leggi('<I', d, p)[0]
     if n > len(d) - p - 4:
-        raise ValueError('lunghezza non valida')
+        raise ValueError(tr(u'lunghezza non valida'))
     testo = decodifica16(d[p + 4: p + 4 + n])
     return testo, p + 4 + n
 
@@ -397,9 +399,9 @@ CARTELLE_NOTE = {
     u'{7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E}': u'C:\\Program Files (x86)',
     u'{F38BF404-1D43-42F2-9305-67DE0B28FC23}': u'C:\\Windows',
     u'{D65231B0-B2F1-4857-A4CE-A8E7C6EA7D27}': u'C:\\Windows\\SysWOW64',
-    u'{0139D44E-6AFE-49F2-8690-3DAFCAE6FFB8}': u'[Menu Start comune]',
-    u'{9E3995AB-1F9C-4F13-B827-48B24B6C7174}': u'[Elementi fissati]',
-    u'{A77F5D77-2E2B-44C3-A6A2-ABA601054A51}': u'[Menu Start utente]',
+    u'{0139D44E-6AFE-49F2-8690-3DAFCAE6FFB8}': N_(u'[Menu Start comune]'),
+    u'{9E3995AB-1F9C-4F13-B827-48B24B6C7174}': N_(u'[Elementi fissati]'),
+    u'{A77F5D77-2E2B-44C3-A6A2-ABA601054A51}': N_(u'[Menu Start utente]'),
 }
 
 
@@ -410,7 +412,7 @@ def userassist_nome(nome):
     if chiaro.startswith(u'{') and len(chiaro) > 38 and chiaro[37] == u'}':
         cartella = CARTELLE_NOTE.get(chiaro[:38].upper())
         if cartella:
-            chiaro = cartella + chiaro[38:]
+            chiaro = tr(cartella) + chiaro[38:]
     return chiaro
 
 
@@ -885,9 +887,9 @@ def tipo_contenuto(inizio):
     """Riconosce dai primi byte che cosa contiene un file: 'eseguibile',
     'archivio', 'script', 'pagina HTML' oppure ''."""
     if inizio[:2] == 'MZ':
-        return u'eseguibile'
+        return N_(u'eseguibile')
     if inizio[:4] in ('PK\x03\x04', 'Rar!') or inizio[:6] == '7z\xbc\xaf\x27\x1c':
-        return u'archivio'
+        return N_(u'archivio')
     basso = inizio[:4000].lower()
     if inizio[:2] in ('\xff\xfe', '\xfe\xff'):
         basso = inizio[2:4000].replace('\x00', '').lower()
@@ -898,12 +900,12 @@ def tipo_contenuto(inizio):
         for segno in ('activexobject', 'wscript', 'powershell', 'createobject', 'hta:application', 'vbscript',
                       'shell.application', 'frombase64'):
             if segno in basso:
-                return u'script'
-        return u'pagina HTML'
+                return N_(u'script')
+        return N_(u'pagina HTML')
     for segno in ('powershell', '<script', 'wscript.', 'createobject(', 'function ', '@echo off',
                   'invoke-', 'iex ', 'iex(', '#!/', 'cmd /c', 'cmd.exe'):
         if segno in basso[:300]:
-            return u'script'
+            return N_(u'script')
     return u''
 
 

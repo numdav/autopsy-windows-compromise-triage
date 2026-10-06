@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_base - Funzioni comuni del plugin "Triage compromissione" per Autopsy.
 """
@@ -6,6 +7,8 @@ tc_base - Funzioni comuni del plugin "Triage compromissione" per Autopsy.
 import struct
 import time
 import calendar
+
+from tc_lingua import tr
 
 DIFF_FILETIME = 116444736000000000
 
@@ -64,7 +67,7 @@ def leggi(formato, b, p):
     if p < 0:
         # una posizione negativa leggerebbe dalla fine del buffer dati che
         # non c'entrano: meglio un errore che un valore sbagliato
-        raise ValueError('posizione negativa')
+        raise ValueError(tr(u'posizione negativa'))
     return _unpack(formato, b[p:p + d])
 
 

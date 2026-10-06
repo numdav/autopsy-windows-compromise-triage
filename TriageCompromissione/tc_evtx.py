@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_evtx - Lettore dei registri eventi di Windows (.evtx) in Python 2.7 puro.
 
@@ -25,6 +26,7 @@ import calendar
 import time
 
 from tc_base import leggi, filetime_a_epoch, testo_orario, orario_da_testo, testo_sid, decodifica16, ERRORI
+from tc_lingua import tr
 
 DIM_CHUNK = 65536
 DIM_TESTATA = 4096
@@ -136,7 +138,7 @@ class _Chunk(object):
                 lung = leggi('<H', b, p + 2)[0]
                 testo = decodifica16(b[p + 4: p + 4 + lung * 2])
                 return ('t', testo), p + 4 + lung * 2, altro
-            raise ErroreEvtx('valore letterale di tipo %d non gestito' % tipo)
+            raise ErroreEvtx(tr(u'valore letterale di tipo %d non gestito') % tipo)
         if base == 0x0D or base == 0x0E:
             indice, tipo = leggi('<HB', b, p + 1)
             return ('s', indice, tipo, base == 0x0E), p + 4, altro
@@ -151,7 +153,7 @@ class _Chunk(object):
             lung = leggi('<H', b, p + 1)[0]
             testo = decodifica16(b[p + 3: p + 3 + lung * 2])
             return ('t', testo), p + 3 + lung * 2, altro
-        raise ErroreEvtx('token %02x non gestito' % t)
+        raise ErroreEvtx(tr(u'token %02x non gestito') % t)
 
     def _elemento(self, p):
         b = self.b
@@ -178,7 +180,7 @@ class _Chunk(object):
         if t == 0x03:
             return ('e', nome, attributi, []), q + 1
         if t != 0x02:
-            raise ErroreEvtx('atteso fine apertura elemento, trovato %02x' % t)
+            raise ErroreEvtx(tr(u'atteso fine apertura elemento, trovato %02x') % t)
         figli, q = self._contenuto(q + 1)
         return ('e', nome, attributi, figli), q
 
@@ -218,7 +220,7 @@ class _Chunk(object):
         n = leggi('<I', b, q)[0]
         q += 4
         if n > 2000:
-            raise ErroreEvtx('troppe sostituzioni: %d' % n)
+            raise ErroreEvtx(tr(u'troppe sostituzioni: %d') % n)
         descr = leggi('<' + 'HBB' * n, b, q)
         q += 4 * n
         posizioni = []
@@ -593,7 +595,7 @@ class FileEvtx(object):
         testa = sorgente.leggi(0, DIM_TESTATA)
         if len(testa) < 128 or testa[:8] != 'ElfFile\x00':
             self.chiudi()
-            raise ErroreEvtx('non e\' un file evtx')
+            raise ErroreEvtx(tr(u'non \u00e8 un file evtx'))
         self.numero_chunk = max(0, (self.dimensione - DIM_TESTATA) // DIM_CHUNK)
 
     def chiudi(self):

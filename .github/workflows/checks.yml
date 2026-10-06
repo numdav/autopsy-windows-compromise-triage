@@ -1,0 +1,44 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: English catalog matches the code
+        run: python3 tools/check_translations.py
+
+      # The same Jython versions that Autopsy ships: 2.7.2 (4.19-4.21) and 2.7.4 (4.22-4.23)
+      - name: Download Jython
+        run: |
+          for version in 2.7.2 2.7.4; do
+            curl -fsSL -o "jython-standalone-$version.jar" \
+              "https://repo1.maven.org/maven2/org/python/jython-standalone/$version/jython-standalone-$version.jar"
+          done
+
+      - name: Sources compile with Jython 2.7.2
+        run: java -jar jython-standalone-2.7.2.jar -m compileall -q TriageCompromissione
+
+      - name: Tests with Jython 2.7.2
+        run: java -jar jython-standalone-2.7.2.jar tests/run_tests.py
+
+      - name: Tests with Jython 2.7.4
+        run: java -jar jython-standalone-2.7.4.jar tests/run_tests.py

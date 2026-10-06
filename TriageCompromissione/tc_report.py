@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# SPDX-License-Identifier: Apache-2.0
 """
 tc_report - Report HTML e CSV del plugin "Triage compromissione".
 
@@ -6,11 +7,13 @@ Il report e' un unico file HTML senza dipendenze esterne: si apre con
 qualunque browser e si puo' stampare o allegare.
 """
 
+import re
 import time
 
 import tc_controlli
 import tc_regole as R
 from tc_base import testo_orario as T, pulito, ERRORI
+from tc_lingua import tr, lingua, ITALIANO
 
 _CSS = u'''
 *{box-sizing:border-box}
@@ -35,6 +38,7 @@ table{border-collapse:collapse;width:100%;background:#fff;margin:6px 0 4px;font-
 th,td{border:1px solid #d5dbe5;padding:5px 8px;text-align:left;vertical-align:top}
 th{background:#e9edf3;font-weight:600;white-space:nowrap}
 td{overflow-wrap:anywhere}
+td.parole{overflow-wrap:normal}
 tr:nth-child(even) td{background:#fafbfc}
 td.ora{white-space:nowrap;font-variant-numeric:tabular-nums}
 .contesto td:first-child{width:260px;color:#5b6676}
@@ -72,6 +76,13 @@ def _etichetta(testo, classe):
     return u'<span class="etichetta %s">%s</span>' % (classe, _e(testo))
 
 
+# Una cella fatta di poche parole corte (un peso, un nome, una data). Le celle
+# vanno a capo anche a meta' parola, perche' un percorso o una riga di comando
+# non allarghino la tabella; queste no, altrimenti in una colonna stretta si
+# leggerebbe "Decisiv" e, sotto, "o".
+_RX_PAROLE_CORTE = re.compile(u'^[^\\s\\\\/]{1,16}(?:\\s[^\\s\\\\/]{1,16}){0,5}$')
+
+
 def _tabella(colonne, righe, classe=u''):
     parti = [u'<table%s><thead><tr>' % (u' class="%s"' % classe if classe else u'')]
     for c in colonne:
@@ -86,26 +97,30 @@ def _tabella(colonne, righe, classe=u''):
                 testo = _e(cella)
                 if u'\n' in testo:
                     testo = testo.replace(u'\n', u'<br>')
-                parti.append(u'<td>%s</td>' % testo)
+                if _RX_PAROLE_CORTE.match(pulito(cella)):
+                    parti.append(u'<td class="parole">%s</td>' % testo)
+                else:
+                    parti.append(u'<td>%s</td>' % testo)
         parti.append(u'</tr>')
     parti.append(u'</tbody></table>')
     return u''.join(parti)
 
 
 def _riga_segnale(t, s):
-    titolo = u'%d. %s' % (s.controllo, tc_controlli.TITOLO_CONTROLLO.get(s.controllo, u''))
+    titolo = u'%d. %s' % (s.controllo, s.titolo())
     descrizione = _e(s.descrizione)
     if s.extra:
-        descrizione += u'<span class="extra" title="Regola che non viene dalle 32 guide">regola in pi\u00f9</span>'
+        descrizione += u'<span class="extra" title="%s">%s</span>' % (_e(tr(u'Regola che non viene dalle 32 guide')),
+                                                                       _e(tr(u'regola in pi\u00f9')))
     if s.dettagli:
-        descrizione += u'<details><summary>dettagli</summary><pre>%s</pre></details>' % _e(s.dettagli)
+        descrizione += tr(u'<details><summary>dettagli</summary><pre>%s</pre></details>') % _e(s.dettagli)
     if s.elemento is not None:
         try:
             descrizione += u'<div class="file">%s</div>' % _e(s.elemento.percorso)
         except ERRORI:
             pass
-    return [(_etichetta(R.NOME_PESO[s.peso], _classe_peso(s.peso)),), (u'<span class="ora">%s</span>' % (_e(T(s.ora)) or u'&ndash;'),),
-            titolo, s.famiglia, (descrizione,)]
+    return [(_etichetta(tr(R.NOME_PESO[s.peso]), _classe_peso(s.peso)),), (u'<span class="ora">%s</span>' % (_e(T(s.ora)) or u'&ndash;'),),
+            titolo, tr(s.famiglia), (descrizione,)]
 
 
 def _contesto(t, info):
@@ -120,45 +135,45 @@ def _contesto(t, info):
     sistema = u' '.join([x for x in (c.get('prodotto'), c.get('versione')) if x])
     if c.get('build'):
         sistema += u' (build %s)' % c.get('build')
-    aggiungi(u'Sistema operativo', sistema.strip())
+    aggiungi(tr(u'Sistema operativo'), sistema.strip())
     if c.get('controller_di_dominio'):
-        aggiungi(u'Ruolo', u'controller di dominio')
+        aggiungi(tr(u'Ruolo'), tr(u'controller di dominio'))
     elif c.get('server'):
-        aggiungi(u'Ruolo', u'server')
+        aggiungi(tr(u'Ruolo'), u'server')
     elif 'server' in c:
-        aggiungi(u'Ruolo', u'client')
-    aggiungi(u'Dominio', c.get('dominio'))
-    aggiungi(u'Installato il', T(c.get('installato', 0)) and T(c.get('installato', 0)) + u' UTC')
+        aggiungi(tr(u'Ruolo'), u'client')
+    aggiungi(tr(u'Dominio'), c.get('dominio'))
+    aggiungi(tr(u'Installato il'), T(c.get('installato', 0)) and T(c.get('installato', 0)) + u' UTC')
     fuso = c.get('fuso') or u''
     if 'scarto_minuti' in c:
         m = c['scarto_minuti']
-        fuso += u' (UTC%s%02d:%02d al momento dell\'acquisizione)' % (u'+' if m >= 0 else u'-', abs(m) // 60, abs(m) % 60)
-    aggiungi(u'Fuso orario della macchina', fuso)
-    aggiungi(u'Ultimo spegnimento registrato', T(c.get('spegnimento', 0)) and T(c.get('spegnimento', 0)) + u' UTC')
+        fuso += tr(u' (UTC%s%02d:%02d al momento dell\'acquisizione)') % (u'+' if m >= 0 else u'-', abs(m) // 60, abs(m) % 60)
+    aggiungi(tr(u'Fuso orario della macchina'), fuso)
+    aggiungi(tr(u'Ultimo spegnimento registrato'), T(c.get('spegnimento', 0)) and T(c.get('spegnimento', 0)) + u' UTC')
     ultima = t.ultima_attivita()
-    aggiungi(u'Ultima attivit\u00e0 trovata', T(ultima) and T(ultima) + u' UTC')
+    aggiungi(tr(u'Ultima attivit\u00e0 trovata'), T(ultima) and T(ultima) + u' UTC')
     if t.riferimento:
-        aggiungi(u'Finestra dei controlli \u00abrecenti\u00bb',
-                 u'dai %d giorni prima del %s UTC in poi' % (t.opzioni.giorni_recenti, T(t.riferimento)))
+        aggiungi(tr(u'Finestra dei controlli \u00abrecenti\u00bb'),
+                 tr(u'dai %d giorni prima del %s UTC in poi') % (t.opzioni.giorni_recenti, T(t.riferimento)))
     if 'rdp_attivo' in c:
-        aggiungi(u'Desktop remoto', u'attivo' if c['rdp_attivo'] else u'non attivo')
-    aggiungi(u'Origine dati', info.get('origine'))
-    aggiungi(u'Cartella di Windows nell\'origine', t.radice.descrizione())
-    aggiungi(u'Caso', info.get('caso'))
+        aggiungi(tr(u'Desktop remoto'), tr(u'attivo') if c['rdp_attivo'] else tr(u'non attivo'))
+    aggiungi(tr(u'Origine dati'), info.get('origine'))
+    aggiungi(tr(u'Cartella di Windows nell\'origine'), t.radice.descrizione())
+    aggiungi(tr(u'Caso'), info.get('caso'))
     artefatti = []
     for nome, chiave in ((u'Prefetch', 'prefetch'), (u'ShimCache', 'shimcache'), (u'AmCache', 'amcache')):
         if c.get(chiave):
             artefatti.append(u'%s: %s' % (nome, c.get(chiave)))
     if c.get('registri_letti'):
-        artefatti.append(u'registri eventi letti: %d' % c['registri_letti'])
+        artefatti.append(tr(u'registri eventi letti: %d') % c['registri_letti'])
     if c.get('numero_servizi'):
-        artefatti.append(u'servizi: %d' % c['numero_servizi'])
+        artefatti.append(tr(u'servizi: %d') % c['numero_servizi'])
     if t.attivita:
-        artefatti.append(u'attivit\u00e0 pianificate: %d' % len(t.attivita))
-    aggiungi(u'Artefatti letti', u'; '.join(artefatti))
+        artefatti.append(tr(u'attivit\u00e0 pianificate: %d') % len(t.attivita))
+    aggiungi(tr(u'Artefatti letti'), u'; '.join(artefatti))
     if t.opzioni.rmm_autorizzati:
-        aggiungi(u'RMM indicati come autorizzati', u', '.join(t.opzioni.rmm_autorizzati))
-    return _tabella([u'Voce', u'Valore'], righe, u'contesto')
+        aggiungi(tr(u'RMM indicati come autorizzati'), u', '.join(t.opzioni.rmm_autorizzati))
+    return _tabella([tr(u'Voce'), tr(u'Valore')], righe, u'contesto')
 
 
 def html(t, info=None):
@@ -170,107 +185,107 @@ def html(t, info=None):
     classe = {tc_controlli.V_COMPROMESSA: u'v-rosso', tc_controlli.V_DA_VERIFICARE: u'v-giallo'}.get(t.verdetto, u'v-verde')
     computer = t.contesto.get('computer') or info.get('origine') or u''
     o = []
-    o.append(u'<!DOCTYPE html><html lang="it"><head><meta charset="utf-8">')
+    o.append(u'<!DOCTYPE html><html lang="%s"><head><meta charset="utf-8">' % lingua())
     o.append(u'<meta name="viewport" content="width=device-width, initial-scale=1">')
-    o.append(u'<title>Triage compromissione - %s</title><style>%s</style></head><body><div class="pagina">' % (_e(computer), _CSS))
-    o.append(u'<h1>Triage compromissione: %s</h1>' % _e(computer or u'origine senza nome'))
-    o.append(u'<div class="sotto">Report generato il %s UTC dal plugin Triage compromissione %s per Autopsy. Tutti gli orari sono in UTC.</div>'
+    o.append(tr(u'<title>Triage compromissione - %s</title><style>%s</style></head><body><div class="pagina">') % (_e(computer), _CSS))
+    o.append(tr(u'<h1>Triage compromissione: %s</h1>') % _e(computer or tr(u'origine senza nome')))
+    o.append(tr(u'<div class="sotto">Report generato il %s UTC dal plugin Triage compromissione %s per Autopsy. Tutti gli orari sono in UTC.</div>')
              % (_e(T(info.get('generato') or time.time())), _e(tc_controlli.VERSIONE)))
     o.append(u'<div class="verdetto %s"><div class="titolo">%s</div><div class="motivo">%s</div></div>'
-             % (classe, _e(t.verdetto), _e(t.motivo_verdetto)))
+             % (classe, _e(tr(t.verdetto)), _e(t.motivo_verdetto)))
     o.append(u'<div class="schede">')
-    for numero, nome, colore in ((len(decisivi), u'Segnali decisivi', u'n-rosso'), (len(conferme), u'Da confermare', u'n-giallo'),
-                                 (len(informativi), u'Solo contesto', u'n-grigio')):
+    for numero, nome, colore in ((len(decisivi), tr(u'Segnali decisivi'), u'n-rosso'), (len(conferme), tr(u'Da confermare'), u'n-giallo'),
+                                 (len(informativi), tr(u'Solo contesto'), u'n-grigio')):
         o.append(u'<div class="scheda"><div class="numero %s">%d</div><div class="nome">%s</div></div>' % (colore, numero, _e(nome)))
     famiglie = []
     for s in decisivi + conferme:
         if s.famiglia not in famiglie:
             famiglie.append(s.famiglia)
-    o.append(u'<div class="scheda"><div class="numero">%d</div><div class="nome">Famiglie di segnali</div></div>' % len(famiglie))
+    o.append(tr(u'<div class="scheda"><div class="numero">%d</div><div class="nome">Famiglie di segnali</div></div>') % len(famiglie))
     o.append(u'</div>')
     for a in t.avvisi:
-        o.append(u'<div class="avviso"><b>Copertura:</b> %s</div>' % _e(a))
+        o.append(tr(u'<div class="avviso"><b>Copertura:</b> %s</div>') % _e(a))
     for a in t.note:
-        o.append(u'<div class="osservazione"><b>Nota:</b> %s</div>' % _e(a))
+        o.append(tr(u'<div class="osservazione"><b>Nota:</b> %s</div>') % _e(a))
     for e in t.errori:
-        o.append(u'<div class="errore"><b>Un controllo non \u00e8 riuscito:</b><pre>%s</pre></div>' % _e(e))
-    o.append(u'<p class="indice"><a href="#segnali">Segnali</a><a href="#cronologia">Cronologia</a>'
-             u'<a href="#controlli">I 41 controlli</a>')
+        o.append(tr(u'<div class="errore"><b>Un controllo non \u00e8 riuscito:</b><pre>%s</pre></div>') % _e(e))
+    o.append(tr(u'<p class="indice"><a href="#segnali">Segnali</a><a href="#cronologia">Cronologia</a>'
+             u'<a href="#controlli">I 41 controlli</a>'))
     for numero, nome in tc_controlli.FASI:
-        o.append(u'<a href="#fase%d">Fase %d</a>' % (numero, numero))
-    o.append(u'<a href="#metodo">Come leggere il report</a></p>')
+        o.append(tr(u'<a href="#fase%d">Fase %d</a>') % (numero, numero))
+    o.append(tr(u'<a href="#metodo">Come leggere il report</a></p>'))
 
-    o.append(u'<h2>Sistema</h2>')
+    o.append(tr(u'<h2>Sistema</h2>'))
     o.append(_contesto(t, info))
 
     # ---- segnali
-    o.append(u'<h2 id="segnali">Segnali</h2>')
-    colonne = [u'Peso', u'Quando (UTC)', u'Controllo', u'Famiglia', u'Segnale']
+    o.append(tr(u'<h2 id="segnali">Segnali</h2>'))
+    colonne = [tr(u'Peso'), tr(u'Quando (UTC)'), tr(u'Controllo'), tr(u'Famiglia'), tr(u'Segnale')]
     if decisivi:
-        o.append(u'<h3>Decisivi (%d)</h3>' % len(decisivi))
+        o.append(tr(u'<h3>Decisivi (%d)</h3>') % len(decisivi))
         o.append(_tabella(colonne, [_riga_segnale(t, s) for s in sorted(decisivi, key=lambda s: (s.controllo, s.ora))]))
     if conferme:
-        o.append(u'<h3>Da confermare (%d)</h3>' % len(conferme))
+        o.append(tr(u'<h3>Da confermare (%d)</h3>') % len(conferme))
         o.append(_tabella(colonne, [_riga_segnale(t, s) for s in sorted(conferme, key=lambda s: (s.controllo, s.ora))]))
     if not decisivi and not conferme:
-        o.append(u'<p>Nessun segnale decisivo o da confermare.</p>')
+        o.append(tr(u'<p>Nessun segnale decisivo o da confermare.</p>'))
     if informativi:
-        o.append(u'<details><summary>Solo contesto (%d): voci che non pesano sul verdetto</summary>' % len(informativi))
+        o.append(tr(u'<details><summary>Solo contesto (%d): voci che non pesano sul verdetto</summary>') % len(informativi))
         o.append(_tabella(colonne, [_riga_segnale(t, s) for s in sorted(informativi, key=lambda s: (s.controllo, s.ora))]))
         o.append(u'</details>')
     tagliati = [(n, q) for n, q in sorted(t._per_controllo.items()) if q > len([s for s in t.segnali if s.controllo == n])]
     if tagliati:
-        o.append(u'<p class="nota">Per non allungare il report, alcuni controlli mostrano solo i primi segnali: %s.</p>'
-                 % _e(u'; '.join([u'controllo %d, %d in tutto' % (n, q) for n, q in tagliati])))
+        o.append(tr(u'<p class="nota">Per non allungare il report, alcuni controlli mostrano solo i primi segnali: %s.</p>')
+                 % _e(u'; '.join([tr(u'controllo %d, %d in tutto') % (n, q) for n, q in tagliati])))
 
     # ---- cronologia
     cronologia = t.cronologia()
-    o.append(u'<h2 id="cronologia">Cronologia dei segnali</h2>')
+    o.append(tr(u'<h2 id="cronologia">Cronologia dei segnali</h2>'))
     if cronologia:
         righe = []
         for s in cronologia:
-            righe.append([(u'<span class="ora">%s</span>' % _e(T(s.ora)),), (_etichetta(R.NOME_PESO[s.peso], _classe_peso(s.peso)),),
+            righe.append([(u'<span class="ora">%s</span>' % _e(T(s.ora)),), (_etichetta(tr(R.NOME_PESO[s.peso]), _classe_peso(s.peso)),),
                           unicode(s.controllo), s.descrizione])
-        o.append(_tabella([u'Quando (UTC)', u'Peso', u'Controllo', u'Segnale'], righe))
-        o.append(u'<p class="nota">Solo i segnali decisivi e da confermare che hanno un orario. '
-                 u'Per le chiavi del registro l\'orario \u00e8 l\'ultima scrittura della chiave.</p>')
+        o.append(_tabella([tr(u'Quando (UTC)'), tr(u'Peso'), tr(u'Controllo'), tr(u'Segnale')], righe))
+        o.append(tr(u'<p class="nota">Solo i segnali decisivi e da confermare che hanno un orario. '
+                 u'Per le chiavi del registro l\'orario \u00e8 l\'ultima scrittura della chiave.</p>'))
     else:
-        o.append(u'<p>Nessun segnale con un orario.</p>')
+        o.append(tr(u'<p>Nessun segnale con un orario.</p>'))
 
     # ---- i 41 controlli
-    o.append(u'<h2 id="controlli">I 41 controlli della checklist</h2>')
+    o.append(tr(u'<h2 id="controlli">I 41 controlli della checklist</h2>'))
     righe = []
     for numero, fase, titolo in tc_controlli.CONTROLLI:
         etichetta, peso, quanti, nota = t.stato_controllo(numero)
         if peso > 0:
             classe_e = _classe_peso(peso)
             testo = u'%s (%d)' % (etichetta, quanti)
-        elif peso == 0 and etichetta == u'Nulla da segnalare':
+        elif peso == 0 and etichetta == tr(u'Nulla da segnalare'):
             classe_e = u'e-ok'
             testo = etichetta
         else:
             classe_e = u'e-na'
             testo = etichetta
-        righe.append([unicode(numero), u'Fase %d' % fase, titolo, (_etichetta(testo, classe_e),), nota])
-    o.append(_tabella([u'N.', u'Fase', u'Controllo', u'Esito', u'Nota'], righe))
+        righe.append([unicode(numero), tr(u'Fase %d') % fase, tr(titolo), (_etichetta(testo, classe_e),), nota])
+    o.append(_tabella([tr(u'N.'), tr(u'Fase'), tr(u'Controllo'), tr(u'Esito'), tr(u'Nota')], righe))
 
     # ---- fasi con le tabelle di contesto
     for numero, nome in tc_controlli.FASI:
-        o.append(u'<h2 id="fase%d">Fase %d \u2014 %s</h2>' % (numero, numero, _e(nome)))
+        o.append(tr(u'<h2 id="fase%d">Fase %d \u2014 %s</h2>') % (numero, numero, _e(tr(nome))))
         mie = [x for x in t.tabelle if tc_controlli.FASE_CONTROLLO.get(x.controllo) == numero]
         if numero == 1:
-            o.append(u'<p>I controlli da 2 a 7 riguardano dati volatili (sessioni, processi, connessioni, cache DNS): '
-                     u'su un\'immagine del disco non ci sono. Servono il triage dal vivo o un dump della RAM.</p>')
+            o.append(tr(u'<p>I controlli da 2 a 7 riguardano dati volatili (sessioni, processi, connessioni, cache DNS): '
+                     u'su un\'immagine del disco non ci sono. Servono il triage dal vivo o un dump della RAM.</p>'))
         if not mie:
             if numero != 1:
-                o.append(u'<p class="nota">Nessuna tabella per questa fase.</p>')
+                o.append(tr(u'<p class="nota">Nessuna tabella per questa fase.</p>'))
             continue
         mie.sort(key=lambda x: x.controllo)
         for tab in mie:
-            o.append(u'<div class="fase"><h3>%d. %s <span class="sotto">(%d righe)</span></h3>'
+            o.append(tr(u'<div class="fase"><h3>%d. %s <span class="sotto">(%d righe)</span></h3>')
                      % (tab.controllo, _e(tab.titolo), len(tab.righe)))
             aperto = u' open' if len(tab.righe) <= 12 else u''
-            o.append(u'<details%s><summary>mostra o nascondi</summary>' % aperto)
+            o.append(tr(u'<details%s><summary>mostra o nascondi</summary>') % aperto)
             o.append(_tabella(tab.colonne, tab.righe))
             o.append(u'</details>')
             if tab.nota:
@@ -278,29 +293,29 @@ def html(t, info=None):
             o.append(u'</div>')
 
     # ---- metodo
-    o.append(u'<h2 id="metodo">Come leggere il report</h2>')
-    o.append(u'<p><b>Verdetto.</b> Un solo segnale <i>decisivo</i> basta per trattare la macchina come compromessa. '
+    o.append(tr(u'<h2 id="metodo">Come leggere il report</h2>'))
+    o.append(tr(u'<p><b>Verdetto.</b> Un solo segnale <i>decisivo</i> basta per trattare la macchina come compromessa. '
              u'I segnali <i>da confermare</i> contano quando arrivano da almeno due famiglie diverse '
              u'(accessi, account, persistenza, programmi eseguiti, strumenti d\'attacco, strumenti a doppio uso, esecuzione remota, '
              u'RMM, file, anti-forensics, antivirus, esfiltrazione e tunnel). '
              u'Una sola famiglia d\u00e0 \u00abDa verificare\u00bb. Lo stesso vale quando non ci sono segnali ma c\'\u00e8 un avviso '
              u'di copertura: registri o hive assenti, danneggiati o troppo corti, file che non si sono lasciati leggere, '
-             u'registri che si fermano prima del resto, controlli interrotti da un errore.</p>')
-    o.append(u'<p><b>Recente.</b> Alcuni controlli pesano di pi\u00f9 ci\u00f2 che \u00e8 recente. La finestra si conta '
+             u'registri che si fermano prima del resto, controlli interrotti da un errore.</p>'))
+    o.append(tr(u'<p><b>Recente.</b> Alcuni controlli pesano di pi\u00f9 ci\u00f2 che \u00e8 recente. La finestra si conta '
              u'all\'indietro da un riferimento: il pi\u00f9 vecchio tra l\'ultimo evento scritto nel registro Security e '
              u'l\'ultimo scritto nel System (o, se mancano, gli ultimi eventi degli altri registri e l\'ora di spegnimento). '
              u'Non \u00e8 l\'orario pi\u00f9 recente trovato: un solo orario sbagliato o alterato sposterebbe la finestra. '
-             u'Tutto ci\u00f2 che viene dopo il riferimento \u00e8 recente.</p>')
-    o.append(u'<p><b>Ogni segnale vale solo se l\'IT non lo spiega:</b> un amministratore o uno strumento di assistenza autorizzato '
-             u'lasciano tracce simili. Il triage serve a decidere se approfondire, non sostituisce l\'analisi.</p>')
-    o.append(u'<p><b>Regole in pi\u00f9.</b> I segnali con questa etichetta vengono da regole note che non fanno parte delle 32 guide '
-             u'su cui \u00e8 costruita la checklist (per esempio: named pipe di Meterpreter, backdoor \u00absticky keys\u00bb, '
-             u'esclusioni di Defender, cronologia di PowerShell).</p>')
-    o.append(u'<p><b>Limiti.</b> Un\'immagine del disco non contiene i dati volatili (controlli 2-7). '
+             u'Tutto ci\u00f2 che viene dopo il riferimento \u00e8 recente.</p>'))
+    o.append(tr(u'<p><b>Ogni segnale vale solo se l\'IT non lo spiega:</b> un amministratore o uno strumento di assistenza autorizzato '
+             u'lasciano tracce simili. Il triage serve a decidere se approfondire, non sostituisce l\'analisi.</p>'))
+    o.append(tr(u'<p><b>Regole in pi\u00f9.</b> I segnali con questa etichetta vengono da regole note che non fanno parte delle 32 guide '
+             u'su cui \u00e8 costruita la checklist (per esempio: backdoor \u00absticky keys\u00bb, '
+             u'esclusioni di Defender, cronologia di PowerShell).</p>'))
+    o.append(tr(u'<p><b>Limiti.</b> Un\'immagine del disco non contiene i dati volatili (controlli 2-7). '
              u'ShimCache e AmCache provano che un file esisteva, non che \u00e8 stato eseguito. '
              u'Le sottoscrizioni WMI vengono cercate anche tra gli oggetti cancellati del repository. '
-             u'Le copie shadow non vengono aperte.</p>')
-    o.append(u'<p class="sotto">Analisi completata in %.1f secondi.</p>' % t.durata)
+             u'Le copie shadow non vengono aperte.</p>'))
+    o.append(tr(u'<p class="sotto">Analisi completata in %.1f secondi.</p>') % t.durata)
     o.append(u'</div></body></html>')
     return u'\n'.join(o)
 
@@ -315,9 +330,13 @@ def _csv(valore):
 
 
 def csv(t):
-    """I segnali in formato CSV (separatore punto e virgola, per Excel)."""
-    righe = [u';'.join([_csv(x) for x in (u'Peso', u'Quando (UTC)', u'Controllo', u'Titolo del controllo', u'Famiglia',
-                                         u'Segnale', u'Dettagli', u'File', u'Regola in pi\u00f9')])]
+    """I segnali in formato CSV, per Excel. Il separatore segue la lingua:
+    punto e virgola in italiano (e' quello che Excel si aspetta con le
+    impostazioni italiane), virgola in inglese."""
+    separatore = u';' if lingua() == ITALIANO else u','
+    righe = [separatore.join([_csv(x) for x in (tr(u'Peso'), tr(u'Quando (UTC)'), tr(u'Controllo'), tr(u'Titolo del controllo'),
+                                                tr(u'Famiglia'), tr(u'Segnale'), tr(u'Dettagli'), u'File',
+                                                tr(u'Regola in pi\u00f9'))])]
     for s in t.segnali_ordinati():
         percorso = u''
         if s.elemento is not None:
@@ -325,6 +344,7 @@ def csv(t):
                 percorso = s.elemento.percorso
             except ERRORI:
                 pass
-        righe.append(u';'.join([_csv(x) for x in (R.NOME_PESO[s.peso], T(s.ora), s.controllo, s.titolo(), s.famiglia,
-                                                  s.descrizione, s.dettagli, percorso, u's\u00ec' if s.extra else u'')]))
+        righe.append(separatore.join([_csv(x) for x in (tr(R.NOME_PESO[s.peso]), T(s.ora), s.controllo, s.titolo(),
+                                                        tr(s.famiglia), s.descrizione, s.dettagli, percorso,
+                                                        tr(u's\u00ec') if s.extra else u'')]))
     return u'\r\n'.join(righe) + u'\r\n'
