@@ -90,7 +90,7 @@ Get-ChildItem C:\Windows\System32\winevt\Logs\Archive-* -ErrorAction SilentlyCon
 auditpol /get /category:*
 ```
 
-- [ ] **9. Log cancellati.** Cancellare un log lascia l'evento 1102 nel nuovo Security e il 104 nel System. **Allarme:** qualsiasi 1102 o 104 fuori da una manutenzione nota: servono diritti di amministratore, ed è un segnale forte (scheda 6.1).
+- [ ] **9. Log cancellati.** Cancellare il Security lascia l'evento 1102 nel log nuovo; cancellare un altro log lascia il 104 nel System. **Allarme:** qualsiasi 1102 o 104 fuori da una manutenzione nota: servono diritti di amministratore, ed è un segnale forte (scheda 6.1).
 
 ```powershell
 Get-WinEvent -FilterHashtable @{LogName='Security'; Id=1102} -ErrorAction SilentlyContinue | Select-Object TimeCreated, Message
@@ -158,12 +158,21 @@ Get-ChildItem C:\Windows\System32\Tasks -Recurse -File -Force -ErrorAction Silen
   Sort-Object CreationTime -Descending | Select-Object -First 30 FullName, CreationTime
 ```
 
-- [ ] **16. Attività nascoste.** Il gruppo HAFNIUM (malware Tarrask) ha nascosto attività agli strumenti standard modificando i valori `SD` e `Index` sotto `TaskCache\Tree`. Il comando elenca le attività senza `SD` o con `Index` uguale a 0. **Allarme:** qualsiasi risultato (scheda 2.4).
+- [ ] **16. Attività nascoste.** Il gruppo HAFNIUM (malware Tarrask) ha nascosto attività agli strumenti standard cancellando il valore `SD` sotto `TaskCache\Tree`; anche un `Index` portato a 0 nasconde l'attività. Il comando elenca le attività senza `SD` e quelle con `Index` a 0 che hanno ancora la propria scheda sotto `TaskCache\Tasks`. Un `Index` a 0 senza scheda è normale: ogni Windows 10 ne ha qualche decina. Il controllo vale da Windows 10 e Server 2016 in poi, perché prima `SD` manca in tutte le attività. **Allarme:** qualsiasi risultato (scheda 2.4).
 
 ```powershell
-Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree' -Recurse -ErrorAction SilentlyContinue |
-  Where-Object { $_.GetValue('Id') -and (-not $_.GetValue('SD') -or $_.GetValue('Index') -eq 0) } |
-  Select-Object Name, @{n='Index'; e={ $_.GetValue('Index') }}, @{n='HaSD'; e={ [bool]$_.GetValue('SD') }}
+$tc = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache'
+$build = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').CurrentBuildNumber
+if ($build -lt 10240) { "Build ${build}: prima di Windows 10 questo controllo non si applica" } else {
+  Get-ChildItem "$tc\Tree" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+    $id = $_.GetValue('Id'); if (-not $id) { return }
+    $senzaSD = $_.GetValueNames() -notcontains 'SD'
+    $index0 = ($_.GetValue('Index') -eq 0) -and (Test-Path -LiteralPath "$tc\Tasks\$id")
+    if ($senzaSD -or $index0) {
+      [pscustomobject]@{ Attivita = $_.Name -replace '^.*?\\TaskCache\\Tree', ''; SenzaSD = $senzaSD; Index0ConScheda = $index0 }
+    }
+  }
+}
 ```
 
 - [ ] **17. Servizi.** Esporta tutti i servizi, poi mostra quelli il cui binario è `cmd.exe`, `%COMSPEC%`, PowerShell o un file in `Users` o `Temp`. **Allarme:** qualsiasi risultato della seconda parte: è la regola generica per l'esecuzione tramite servizi (scheda 1.7).
@@ -446,7 +455,7 @@ Un segnale isolato o log insufficienti non chiudono il caso: prima di decidere, 
 | --- | --- | --- |
 | Firme di atexec o smbexec: attività lampo, data 2015-07-15, `__output`, `BTOBTO` | 27–31 | Decisivo |
 | Log cancellati fuori da una manutenzione (1102, 104) | 9 | Decisivo |
-| Attività nascoste (`SD` assente o `Index` a 0) | 16 | Decisivo |
+| Attività nascoste (`SD` assente, oppure `Index` a 0 con la scheda in `Tasks`) | 16 | Decisivo |
 | Servizi, attività o consumer WMI che lanciano cmd, PowerShell o script da cartelle utente | 15, 17–20 | Decisivo |
 | Eseguibile in `CryptnetUrlCache` (download con certutil) | 24 | Decisivo |
 | RMM non autorizzato con sessioni in entrata, comandi o trasferimenti | 32–36 | Decisivo |
