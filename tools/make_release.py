@@ -5,7 +5,9 @@
 The archive contains the TriageCompromissione folder: the sources (no
 compiled files) with the documentation, its images and the license next to
 them, so that they travel with the plugin when the folder is copied into
-Autopsy and the README can be read offline:
+Autopsy and the README can be read offline. The memory collector goes in
+TriageCompromissione/collectors/: Autopsy reads only the .py files directly
+inside the plugin folder, so it ignores it.
 
     python3 tools/make_release.py
 
@@ -20,8 +22,9 @@ import zipfile
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
 PLUGIN = 'TriageCompromissione'
-DOCUMENTS = ('README.md', 'README.it.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE', 'NOTICE')
+DOCUMENTS = ('README.md', 'README.it.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md', 'LICENSE', 'NOTICE')
 IMAGES = 'docs/screenshots'
+COLLECTORS = ('collectors/collect_memory.py',)
 
 
 def version():
@@ -46,8 +49,10 @@ def main():
         # the READMEs refer to their images as docs/screenshots/<name>
         for image in images:
             archive.write(os.path.join(ROOT, IMAGES, image), '%s/%s/%s' % (PLUGIN, IMAGES, image))
-    print('%s: %d source files, %d documents, %d images'
-          % (os.path.relpath(target, ROOT), len(sources), len(DOCUMENTS), len(images)))
+        for collector in COLLECTORS:
+            archive.write(os.path.join(ROOT, collector), '%s/%s' % (PLUGIN, collector))
+    print('%s: %d source files, %d documents, %d images, %d collector'
+          % (os.path.relpath(target, ROOT), len(sources), len(DOCUMENTS), len(images), len(COLLECTORS)))
 
 
 if __name__ == '__main__':

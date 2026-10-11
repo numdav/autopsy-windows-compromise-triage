@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.2 (October 2026)
+
+- **Memory.** The module can now use a memory image of the machine, analyzed with Volatility 3:
+  - `collectors/collect_memory.py` runs ten Volatility 3 plugins (`windows.info`, `pslist`, `pstree`, `psscan`,
+    `cmdline`, `netscan` or `netstat`, `sessions`, `envars`, `getsids`, `svcscan`) and keeps their JSON output
+    unchanged, next to a manifest that records the version of Volatility, the SHA-256 of the image and the outcome of
+    each plugin. It judges nothing. The release zip carries it in `TriageCompromissione/collectors/`.
+  - The module finds that folder in the case, in the same data source or, paired by computer name, in another one,
+    and fills checks 3, 4, 5 and 7 with the rules it applies to the disk, plus a few rules that make sense only in
+    memory (*extra rules*): processes found only by the memory scan, system processes with an unexpected parent or in
+    more than one copy, command interpreters started by a document program or a web server, Windows programs that
+    should not connect to the Internet. Services that are in memory but no longer in the registry are judged too
+    (checks 17 and 29). A Remote Desktop session open at the time of the acquisition is reported as context.
+  - The report has the tables of the sessions, processes, network connections and SMB connections found in memory,
+    and the *System* table names the memory image used, with its SHA-256. A Volatility plugin that produced nothing
+    gives a coverage warning with the checks it leaves incomplete.
+- Without memory, the note on checks 3-7 now says that a memory image analyzed with Volatility can fill them.
+- Under the hood: the judgment of a process (`tc_eventi.giudica_processo`) is shared by events 4688/Sysmon and
+  memory; new tests `tests/test_memoria.py` (Jython) and `tests/test_collect_memory.py` (Python 3), the latter also
+  among the GitHub Actions checks.
+
+Without memory, the results are identical to those of version 1.1 apart from the note on checks 3-7.
+
 ## 1.1 (October 2026)
 
 - The results can be produced in English or in Italian: inbox message, results tree, HTML report and CSV. The

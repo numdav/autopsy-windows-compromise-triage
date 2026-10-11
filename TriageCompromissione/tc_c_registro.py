@@ -624,10 +624,15 @@ def _servizi(t, h, e, ccs):
     righe = []
     quanti = [0]
     falliti = [0]
+    # i nomi dei servizi del registro: il controllo della RAM (tc_memoria)
+    # giudica solo i servizi che qui non ci sono, per non contarli due volte
+    nomi = set()
+    t.contesto['servizi_registro'] = nomi
     for numero, s in enumerate(base.sottochiavi()):
         if t.battito(numero, 2000, tr(u'Registro: SYSTEM, %d servizi esaminati')):
             return
         try:
+            nomi.add(s.nome.lower())
             _un_servizio(t, s, e, righe, quanti)
         except ERRORI:
             # un servizio con dati inattesi non deve far perdere gli altri

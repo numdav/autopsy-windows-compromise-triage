@@ -399,31 +399,7 @@ class Raccolta(object):
                 r['ultimo'] = ora
 
     def _giudica_processo(self, immagine, nome, riga):
-        """I riscontri su un processo: lista di (peso, famiglia, descrizione,
-        uno per riga di comando?, comando in chiaro se era codificato)."""
-        trovati = []
-        peso, cosa = R.strumento(nome)
-        if peso >= R.DA_CONFERMARE:
-            trovati.append((peso, R.famiglia_strumento(nome), cosa, False, u''))
-        # dove sta davvero il programma (dal percorso dell'immagine, non dalla riga di comando)
-        g = R.valuta_comando(immagine, u'', persistenza=False)
-        if g.livello >= 2 and not R.strumento_forense(nome):
-            trovati.append((R.DA_CONFERMARE, R.F_ESECUZIONE, g.motivo(), False, u''))
-        if riga:
-            noti = R.comandi_noti(riga)
-            for peso_c, famiglia_c, cosa_c in noti:
-                trovati.append((peso_c, famiglia_c, cosa_c, True, u''))
-            # Un comando soltanto eseguito non pesa come lo stesso comando in
-            # una voce che parte da sola: gli strumenti di gestione eseguono
-            # ogni giorno comandi codificati o che scaricano script. E'
-            # decisivo solo se il motivo e' di quelli senza spiegazioni
-            # innocenti (g.certo, vedi tc_regole.valuta_comando).
-            g = R.valuta_comando(riga, persistenza=False)
-            gia_decisivo = [1 for peso_c, _, _ in noti if peso_c >= R.DECISIVO]
-            if (g.livello >= 3 or g.avvio) and (g.certo or not noti) and not gia_decisivo:
-                trovati.append((R.DECISIVO if g.certo else R.DA_CONFERMARE, R.F_ESECUZIONE, g.motivo(), True,
-                                g.decodificato))
-        return trovati
+        return giudica_processo(immagine, nome, riga)
 
     # ---- servizi ----------------------------------------------------------
 
@@ -755,3 +731,33 @@ class Raccolta(object):
         if nome and len(self.installazioni) < 500:
             self.installazioni.append({'ora': ev['Ora'], 'strumento': nome, 'prodotto': prodotto,
                                        'elemento': self._elemento})
+
+
+def giudica_processo(immagine, nome, riga):
+    """I riscontri su un processo (da un evento 4688 o Sysmon, oppure dalla
+    RAM): lista di (peso, famiglia, descrizione, uno per riga di comando?,
+    comando in chiaro se era codificato). nome e' il nome del programma in
+    minuscolo (tc_regole.nome_base dell'immagine)."""
+    trovati = []
+    peso, cosa = R.strumento(nome)
+    if peso >= R.DA_CONFERMARE:
+        trovati.append((peso, R.famiglia_strumento(nome), cosa, False, u''))
+    # dove sta davvero il programma (dal percorso dell'immagine, non dalla riga di comando)
+    g = R.valuta_comando(immagine, u'', persistenza=False)
+    if g.livello >= 2 and not R.strumento_forense(nome):
+        trovati.append((R.DA_CONFERMARE, R.F_ESECUZIONE, g.motivo(), False, u''))
+    if riga:
+        noti = R.comandi_noti(riga)
+        for peso_c, famiglia_c, cosa_c in noti:
+            trovati.append((peso_c, famiglia_c, cosa_c, True, u''))
+        # Un comando soltanto eseguito non pesa come lo stesso comando in
+        # una voce che parte da sola: gli strumenti di gestione eseguono
+        # ogni giorno comandi codificati o che scaricano script. E'
+        # decisivo solo se il motivo e' di quelli senza spiegazioni
+        # innocenti (g.certo, vedi tc_regole.valuta_comando).
+        g = R.valuta_comando(riga, persistenza=False)
+        gia_decisivo = [1 for peso_c, _, _ in noti if peso_c >= R.DECISIVO]
+        if (g.livello >= 3 or g.avvio) and (g.certo or not noti) and not gia_decisivo:
+            trovati.append((R.DECISIVO if g.certo else R.DA_CONFERMARE, R.F_ESECUZIONE, g.motivo(), True,
+                            g.decodificato))
+    return trovati

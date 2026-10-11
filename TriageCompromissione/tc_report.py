@@ -11,6 +11,7 @@ import re
 import time
 
 import tc_controlli
+import tc_memoria
 import tc_regole as R
 from tc_base import testo_orario as T, pulito, ERRORI
 from tc_lingua import tr, lingua, ITALIANO
@@ -171,6 +172,8 @@ def _contesto(t, info):
     if t.attivita:
         artefatti.append(tr(u'attivit\u00e0 pianificate: %d') % len(t.attivita))
     aggiungi(tr(u'Artefatti letti'), u'; '.join(artefatti))
+    for memoria in c.get('memorie') or []:
+        aggiungi(tr(u'RAM (Volatility)'), tc_memoria.descrizione(memoria))
     if t.opzioni.rmm_autorizzati:
         aggiungi(tr(u'RMM indicati come autorizzati'), u', '.join(t.opzioni.rmm_autorizzati))
     return _tabella([tr(u'Voce'), tr(u'Valore')], righe, u'contesto')
@@ -273,7 +276,10 @@ def html(t, info=None):
     for numero, nome in tc_controlli.FASI:
         o.append(tr(u'<h2 id="fase%d">Fase %d \u2014 %s</h2>') % (numero, numero, _e(tr(nome))))
         mie = [x for x in t.tabelle if tc_controlli.FASE_CONTROLLO.get(x.controllo) == numero]
-        if numero == 1:
+        if numero == 1 and t.contesto.get('memorie'):
+            o.append(tr(u'<p>I controlli 3, 4, 5 e 7 vengono dalla RAM analizzata con Volatility (vedi Sistema). La cache '
+                     u'DNS (controllo 6) e la copia del Prefetch (2) richiedono il triage dal vivo.</p>'))
+        elif numero == 1:
             o.append(tr(u'<p>I controlli da 2 a 7 riguardano dati volatili (sessioni, processi, connessioni, cache DNS): '
                      u'su un\'immagine del disco non ci sono. Servono il triage dal vivo o un dump della RAM.</p>'))
         if not mie:
@@ -315,6 +321,11 @@ def html(t, info=None):
              u'ShimCache e AmCache provano che un file esisteva, non che \u00e8 stato eseguito. '
              u'Le sottoscrizioni WMI vengono cercate anche tra gli oggetti cancellati del repository. '
              u'Le copie shadow non vengono aperte.</p>'))
+    if t.contesto.get('memorie'):
+        o.append(tr(u'<p><b>RAM.</b> La RAM fotografa un istante: un processo gi\u00e0 terminato si vede solo se la sua '
+                 u'memoria non \u00e8 ancora stata riusata (psscan), e per i processi la cui memoria era nel file di '
+                 u'paging mancano la riga di comando e l\'utente. I processi \u00abforse nascosti\u00bb vanno '
+                 u'confermati: a volte la scansione trova i resti di un processo appena terminato.</p>'))
     o.append(tr(u'<p class="sotto">Analisi completata in %.1f secondi.</p>') % t.durata)
     o.append(u'</div></body></html>')
     return u'\n'.join(o)

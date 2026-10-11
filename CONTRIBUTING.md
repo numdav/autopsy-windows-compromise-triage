@@ -16,6 +16,10 @@ command line, the service path, the task action, the event), with names and addr
 - Only `TriageCompromissione.py` talks to Autopsy. Everything else (`tc_*.py`) is independent of it and can be
   run with a plain Jython interpreter, which is what the tests do.
 - Autopsy reloads only the main file: after changing a `tc_*.py` file, restart Autopsy.
+- The one exception is `collectors/collect_memory.py`, which runs outside Autopsy: Python 3.8 or later, standard
+  library only, code and comments in English, messages in English and Italian (the `TEXTS` table). It must keep
+  collecting only: every decision belongs to the module (`tc_memoria.py`). If the content of its output changes in a
+  way the module has to know, raise `FORMAT_VERSION` there and `VERSIONE_FORMATO` in `tc_memoria.py` together.
 
 ## Texts and translations
 
@@ -63,8 +67,35 @@ Most rules live in `tc_regole.py` (see the table in the README); the checks that
 java -jar jython-standalone-2.7.4.jar tests/run_tests.py
 ```
 
+If you change the memory collector, run its tests too (Python 3, no Volatility needed):
+
+```
+python3 tests/test_collect_memory.py
+```
+
+## Commits and versions
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): a type, an optional scope and
+a short summary, in English.
+
+```
+feat(memoria): judge services that exist only in memory
+fix(regole): do not flag the signed Teams updater
+docs(readme): explain how memory and disk are paired
+test(eventi): cover event 4688 without a command line
+```
+
+The types used here are `feat` (a new check, rule or output), `fix` (a wrong or missed finding, a crash), `docs`,
+`test`, `refactor` and `chore` (tools, checks, repository). A version is released with a commit that changes
+`VERSIONE` in `tc_controlli.py` and adds its entry to the CHANGELOG (`chore(release): 1.3`), then the tag `v1.3`
+and a GitHub release with the zip built by `tools/make_release.py`. Versions 1.0 to 1.2 were imported with one
+commit each.
+
+Before every commit look at the list of changed files: `.gitignore` keeps out the usual evidence formats (memory
+and disk images, Autopsy cases, reports), but nothing from a real case must ever reach the repository.
+
 ## Pull requests
 
 Keep them small and say what you tested and how (Autopsy version, operating system, kind of data source). The
-checks run by GitHub Actions on every pull request are the two commands shown above, with the tests run on both
+checks run by GitHub Actions on every pull request are the commands shown above, with the tests run on both
 Jython 2.7.2 and 2.7.4, plus a compilation of the plugin with Jython 2.7.2.

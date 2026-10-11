@@ -3,7 +3,9 @@ Copyright 2026 Davide Numelli
 
 This product is an ingest module for Autopsy (https://www.autopsy.com/).
 It is an independent project: it is not affiliated with, nor endorsed by,
-the Autopsy project, Sleuth Kit Labs or Cyber Triage.
+the Autopsy project, Sleuth Kit Labs, the Volatility Foundation or Cyber
+Triage. Volatility 3, used to analyze memory images, is not included: it is
+installed separately and distributed under its own license.
 
 The checklist it implements is built on the guides collected by Cyber
 Triage in the post "Windows Artifact Forensics Guides - The Master List"

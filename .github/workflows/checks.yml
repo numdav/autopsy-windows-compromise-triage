@@ -26,6 +26,9 @@ jobs:
       - name: English catalog matches the code
         run: python3 tools/check_translations.py
 
+      - name: Memory collector tests
+        run: python3 tests/test_collect_memory.py
+
       # The same Jython versions that Autopsy ships: 2.7.2 (4.19-4.21) and 2.7.4 (4.22-4.23)
       - name: Download Jython
         run: |

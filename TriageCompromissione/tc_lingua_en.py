@@ -93,6 +93,10 @@ def _modulo():
             u'Done',
         u'Triage completato in %.1f s':
             u'Triage completed in %.1f s',
+        u'Ricerca dei risultati della RAM non riuscita: ':
+            u'Search for the memory results failed: ',
+        u'Elenco delle origini dati del caso non riuscito: ':
+            u'Listing the data sources of the case failed: ',
         u'Segnali decisivi: %d - da confermare: %d':
             u'Decisive findings: %d - to confirm: %d',
         u'<i>1 controllo non riuscito: i dettagli sono nel report e nel log di Autopsy.</i>':
@@ -319,8 +323,8 @@ def _controlli_1():
             u'(error traceback not available)',
         u'Errore in "%s": %s':
             u'Error in "%s": %s',
-        u'dato volatile: serve il triage dal vivo o un dump della RAM':
-            u'volatile data: it needs live triage or a RAM dump',
+        u'dato volatile: serve il triage dal vivo o la RAM analizzata con Volatility (vedi il README)':
+            u'volatile data: it needs live triage or the memory analyzed with Volatility (see the README)',
         u'non serve su un\'immagine: il Prefetch viene letto dal controllo 21':
             u'not needed on an image: Prefetch is read by check 21',
         u'Registro: SOFTWARE':
@@ -351,6 +355,8 @@ def _controlli_2():
     return {
         u'Cartelle di appoggio':
             u'Staging folders',
+        u'Memoria (RAM)':
+            u'Memory (RAM)',
         u'Analisi degli eventi':
             u'Event analysis',
         u'Attivit\u00e0 pianificate: riepilogo':
@@ -481,6 +487,8 @@ def _report_1():
             u'scheduled tasks: %d',
         u'Artefatti letti':
             u'Artifacts read',
+        u'RAM (Volatility)':
+            u'Memory (Volatility)',
         u'RMM indicati come autorizzati':
             u'RMM tools declared as authorized',
         u'Voce':
@@ -557,6 +565,10 @@ def _report_1():
             u'Note',
         u'<h2 id="fase%d">Fase %d \u2014 %s</h2>':
             u'<h2 id="fase%d">Phase %d \u2014 %s</h2>',
+        u'<p>I controlli 3, 4, 5 e 7 vengono dalla RAM analizzata con Volatility (vedi Sistema). La cache '
+        u'DNS (controllo 6) e la copia del Prefetch (2) richiedono il triage dal vivo.</p>':
+            u'<p>Checks 3, 4, 5 and 7 come from the memory analyzed with Volatility (see System). The DNS '
+            u'cache (check 6) and the copy of Prefetch (2) need live triage.</p>',
         u'<p>I controlli da 2 a 7 riguardano dati volatili (sessioni, processi, connessioni, cache DNS): '
         u'su un\'immagine del disco non ci sono. Servono il triage dal vivo o un dump della RAM.</p>':
             u'<p>Checks 2 to 7 concern volatile data (sessions, processes, connections, DNS cache): a disk '
@@ -612,16 +624,24 @@ def _report_1():
             u'<p><b>Limits.</b> A disk image does not contain volatile data (checks 2-7). ShimCache and '
             u'AmCache prove that a file existed, not that it was executed. WMI subscriptions are also '
             u'searched among the deleted objects of the repository. Shadow copies are not opened.</p>',
-        u'<p class="sotto">Analisi completata in %.1f secondi.</p>':
-            u'<p class="sotto">Analysis completed in %.1f seconds.</p>',
-        u'Titolo del controllo':
-            u'Check title',
     }
 
 
 def _report_2():
     # tc_report.py
     return {
+        u'<p><b>RAM.</b> La RAM fotografa un istante: un processo gi\u00e0 terminato si vede solo se la sua '
+        u'memoria non \u00e8 ancora stata riusata (psscan), e per i processi la cui memoria era nel file di '
+        u'paging mancano la riga di comando e l\'utente. I processi \u00abforse nascosti\u00bb vanno confermati: a '
+        u'volte la scansione trova i resti di un processo appena terminato.</p>':
+            u'<p><b>Memory.</b> Memory is a snapshot of one moment: a process that has already ended is '
+            u'visible only if its memory has not been reused yet (psscan), and for processes whose memory was '
+            u'in the paging file the command line and the user are missing. Processes "maybe hidden" must be '
+            u'confirmed: sometimes the scan finds the remains of a process that has just ended.</p>',
+        u'<p class="sotto">Analisi completata in %.1f secondi.</p>':
+            u'<p class="sotto">Analysis completed in %.1f seconds.</p>',
+        u'Titolo del controllo':
+            u'Check title',
         u'Regola in pi\u00f9':
             u'Extra rule',
         u's\u00ec':
@@ -2238,6 +2258,200 @@ def _base():
     }
 
 
+def _memoria_1():
+    # tc_memoria.py
+    return {
+        u'manifesto non leggibile (%s)':
+            u'manifest not readable (%s)',
+        u'%s danneggiato: non \u00e8 un testo JSON valido':
+            u'%s damaged: it is not valid JSON',
+        u'%s non \u00e8 un manifesto dello script di raccolta':
+            u'%s is not a manifest of the collection script',
+        u'il manifesto \u00e8 di una versione pi\u00f9 recente dello script di raccolta (formato %d): aggiorna il '
+        u'plugin':
+            u'the manifest comes from a newer version of the collection script (format %d): update the plugin',
+        u'RAM: i risultati di Volatility in %s non si possono usare: %s. I controlli sui dati volatili '
+        u'non sono stati fatti.':
+            u'Memory: the Volatility results in %s cannot be used: %s. The checks on volatile data were not '
+            u'done.',
+        u'Nell\'origine dati ci sono i risultati di Volatility di un altro computer (%s, in %s): non sono '
+        u'stati usati per %s.':
+            u'The data source contains the Volatility results of another computer (%s, in %s): they were not '
+            u'used for %s.',
+        u'La RAM viene da un\'altra origine dati del caso (\u00ab%s\u00bb, %s): \u00e8 stata usata perch\u00e9 il nome del '
+        u'computer \u00e8 lo stesso (%s).':
+            u'The memory comes from another data source of the case ("%s", %s): it was used because the '
+            u'computer name is the same (%s).',
+        u'I risultati di Volatility in %s sono stati usati perch\u00e9 stanno nella stessa origine dati, ma il '
+        u'nome del computer non si \u00e8 potuto confrontare con quello del registro.':
+            u'The Volatility results in %s were used because they are in the same data source, but the '
+            u'computer name could not be compared with the one in the registry.',
+        u'dalla RAM: nome del computer e ora dell\'acquisizione':
+            u'from memory: computer name and acquisition time',
+        u'Volatility 3 non ha un plugin per la cache DNS: serve il triage dal vivo':
+            u'Volatility 3 has no plugin for the DNS cache: it needs live triage',
+        u'non riuscito':
+            u'failed',
+        u'fermato dopo il tempo massimo':
+            u'stopped after the time limit',
+        u'non eseguito':
+            u'not run',
+        u'file non trovato':
+            u'file not found',
+        u'output illeggibile':
+            u'unreadable output',
+        u'output troppo grande':
+            u'output too large',
+        u'RAM %s, plugin di Volatility senza risultati: %s. Controlli incompleti: %s.':
+            u'Memory %s, Volatility plugins without results: %s. Incomplete checks: %s.',
+        u'RAM %s, plugin di Volatility senza risultati: %s. I controlli non ne risentono.':
+            u'Memory %s, Volatility plugins without results: %s. The checks are not affected.',
+        u'RAM %s: la raccolta con Volatility \u00e8 stata interrotta prima della fine.':
+            u'Memory %s: the collection with Volatility was interrupted before the end.',
+        u'Riga di comando: %s':
+            u'Command line: %s',
+        u'Programma: %s':
+            u'Program: %s',
+        u'Processo padre: %s (PID %d)':
+            u'Parent process: %s (PID %d)',
+        u'Processo padre: PID %d, non pi\u00f9 attivo':
+            u'Parent process: PID %d, no longer running',
+        u'Utente: %s':
+            u'User: %s',
+        u'Avviato: %s (UTC)':
+            u'Started: %s (UTC)',
+        u'Terminato: %s (UTC)':
+            u'Ended: %s (UTC)',
+        u'Trovato solo dalla scansione della memoria (psscan), non nell\'elenco dei processi attivi.':
+            u'Found only by the memory scan (psscan), not in the list of active processes.',
+        u'Fonte: RAM %s, %s':
+            u'Source: memory %s, %s',
+        u'la RAM c\'\u00e8, ma Volatility non ha prodotto l\'elenco dei processi':
+            u'the memory is there, but Volatility produced no process list',
+        u'processo nella RAM':
+            u'process in memory',
+        u'Processo nella memoria ma non nell\'elenco dei processi attivi, forse nascosto: %s (PID %d)':
+            u'Process in memory but not in the list of active processes, maybe hidden: %s (PID %d)',
+        u'%s con un processo padre insolito: %s (PID %d) invece di %s':
+            u'%s with an unusual parent process: %s (PID %d) instead of %s',
+        u'%d processi %s attivi nello stesso momento: di norma ce n\'\u00e8 uno solo (PID %s)':
+            u'%d %s processes running at the same time: normally there is only one (PID %s)',
+        u'%s avviato da %s (PID %d): un programma per documenti o un server web di norma non apre '
+        u'interpreti di comandi':
+            u'%s started by %s (PID %d): a document program or a web server does not normally open command '
+            u'interpreters',
+        u'solo psscan':
+            u'psscan only',
+        u'Tutti i processi trovati da Volatility (%s), in ordine di avvio. \u00abSolo psscan\u00bb: trovato dalla '
+        u'scansione della memoria ma non nell\'elenco dei processi attivi (terminato, oppure nascosto se '
+        u'non ha l\'ora di fine).':
+            u'All the processes found by Volatility (%s), in order of start. "psscan only": found by the '
+            u'memory scan but not in the list of active processes (ended, or hidden if it has no end time).',
+        u' Sono mostrati i primi 400 di %d.':
+            u' The first 400 of %d are shown.',
+        u'Processi nella RAM (%s)':
+            u'Processes in memory (%s)',
+        u'Riga di comando o programma':
+            u'Command line or program',
+        u'Sessione':
+            u'Session',
+        u'Avviato (UTC)':
+            u'Started (UTC)',
+        u'Terminato (UTC)':
+            u'Ended (UTC)',
+        u'RAM %s: senza l\'elenco dei processi attivi (pslist e pstree) non si possono cercare i processi '
+        u'nascosti.':
+            u'Memory %s: without the list of active processes (pslist and pstree) hidden processes cannot be '
+            u'searched for.',
+        u'la RAM c\'\u00e8, ma Volatility non ha prodotto le connessioni (%s)':
+            u'the memory is there, but Volatility produced no connections (%s)',
+        u'solo le connessioni sulla porta 445: le sessioni SMB richiedono il triage dal vivo':
+            u'only the connections on port 445: SMB sessions need live triage',
+        u'Connessione verso %s da un processo gi\u00e0 segnalato: %s (PID %d, %s)':
+            u'Connection to %s from a process already reported: %s (PID %d, %s)',
+        u'Locale %s - remoto %s - stato %s - creata %s (UTC)\nFonte: RAM %s, %s':
+            u'Local %s - remote %s - state %s - created %s (UTC)\nSource: memory %s, %s',
+        u'%s ha una connessione verso l\'indirizzo pubblico %s (PID %d, %s): di norma non si collega a '
+        u'Internet':
+            u'%s has a connection to the public address %s (PID %d, %s): it does not normally connect to the '
+            u'Internet',
+        u'Le connessioni trovate da %s: prima quelle verso indirizzi pubblici, poi le altre, poi le porte '
+        u'in ascolto.':
+            u'The connections found by %s: first those to public addresses, then the others, then the '
+            u'listening ports.',
+        u' Sono mostrate le prime 300 di %d.':
+            u' The first 300 of %d are shown.',
+        u'Connessioni di rete nella RAM (%s)':
+            u'Network connections in memory (%s)',
+        u'Protocollo':
+            u'Protocol',
+        u'Locale':
+            u'Local',
+        u'Remoto':
+            u'Remote',
+        u'Processo (PID)':
+            u'Process (PID)',
+        u'Connessioni SMB (porta 445) nella RAM (%s)':
+            u'SMB connections (port 445) in memory (%s)',
+        u'Direzione':
+            u'Direction',
+        u'Dalla RAM si vedono le connessioni sulla porta 445, non le sessioni SMB con l\'utente e le '
+        u'condivisioni aperte: per quelle serve il triage dal vivo.':
+            u'Memory shows the connections on port 445, not the SMB sessions with the user and the open '
+            u'shares: those need live triage.',
+        u'la RAM c\'\u00e8, ma Volatility non ha prodotto le sessioni (%s)':
+            u'the memory is there, but Volatility produced no sessions (%s)',
+        u'Sessione di Desktop remoto aperta al momento dell\'acquisizione: %s (sessione %d, %s)':
+            u'Remote Desktop session open at the time of acquisition: %s (session %d, %s)',
+        u'Processi nella sessione: %d; il primo avviato il %s (UTC).\nFonte: RAM %s, %s':
+            u'Processes in the session: %d; the first started at %s (UTC).\nSource: memory %s, %s',
+        u'Sessioni nella RAM (%s)':
+            u'Sessions in memory (%s)',
+        u'Processi':
+            u'Processes',
+        u'Primo processo (UTC)':
+            u'First process (UTC)',
+        u'Il tipo viene dalla variabile SESSIONNAME dei processi: Console per chi sta davanti al '
+        u'computer, RDP-Tcp#N per il Desktop remoto. Senza utente: sessione dei servizi.':
+            u'The type comes from the SESSIONNAME variable of the processes: Console for whoever sits at the '
+            u'computer, RDP-Tcp#N for Remote Desktop. No user: the services session.',
+        u'servizio nella RAM':
+            u'service in memory',
+        u'nella RAM ma non nel registro':
+            u'in memory but not in the registry',
+        u'%s\nStato: %s - avvio: %s - PID: %s\nFonte: RAM %s, %s':
+            u'%s\nState: %s - start: %s - PID: %s\nSource: memory %s, %s',
+        u'(programma non leggibile nella RAM)':
+            u'(program not readable in memory)',
+        u'solo i servizi trovati nella RAM':
+            u'only the services found in memory',
+    }
+
+
+def _memoria_2():
+    # tc_memoria.py
+    return {
+        u'Servizi segnalati nella RAM (%s)':
+            u'Services reported in memory (%s)',
+        u'Servizi nella RAM che non sono nel registro (%s)':
+            u'Services in memory that are not in the registry (%s)',
+        u'Avvio':
+            u'Start',
+        u'computer: %s':
+            u'computer: %s',
+        u'ora di sistema nella RAM: %s UTC':
+            u'system time in memory: %s UTC',
+        u'Windows build %s':
+            u'Windows build %s',
+        u'Volatility %s: %d plugin su %d con risultati':
+            u'Volatility %s: %d of %d plugins with results',
+        u'cartella: %s':
+            u'folder: %s',
+        u' (origine dati \u00ab%s\u00bb)':
+            u' (data source "%s")',
+    }
+
+
 TESTI = {}
 for _parte in (_modulo,
                _controlli_1,
@@ -2261,6 +2475,8 @@ for _parte in (_modulo,
                _evtx,
                _prefetch,
                _registro,
-               _base):
+               _base,
+               _memoria_1,
+               _memoria_2):
     TESTI.update(_parte())
 del _parte

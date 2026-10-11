@@ -18,11 +18,12 @@ import tc_regole as R
 import tc_c_registro
 import tc_c_eventi
 import tc_c_file
+import tc_memoria
 from tc_base import testo_orario, pulito, ERRORI
 from tc_lingua import tr, N_
 
-VERSIONE = u'1.1'
-NUMERO_PASSI = 23       # i passi di Triage.esegui, per la barra di avanzamento
+VERSIONE = u'1.2'
+NUMERO_PASSI = 24       # i passi di Triage.esegui, per la barra di avanzamento
 
 V_COMPROMESSA = N_(u'COMPROMISSIONE PROBABILE')
 V_DA_VERIFICARE = N_(u'DA VERIFICARE')
@@ -177,6 +178,7 @@ class Triage(object):
         self.rmm = {}               # strumento -> {'prove': [], 'sessioni': []}
         self.raccolta = None        # eventi (tc_eventi.Raccolta)
         self.attivita = {}          # attivita' pianificate dal registro
+        self.memorie = []           # i risultati di Volatility che si possono usare (tc_memoria.Memoria)
         self._rif = None            # il riferimento calcolato (None: da ricalcolare)
         self._rif_forzato = None    # il riferimento imposto da fuori (nelle prove)
         self._voti = {}             # fonte affidabile -> il suo orario piu' recente
@@ -559,7 +561,8 @@ class Triage(object):
     def esegui(self):
         inizio = time.time()
         for c in VOLATILI:
-            self.esiti[c] = ('non verificabile', tr(u'dato volatile: serve il triage dal vivo o un dump della RAM'))
+            self.esiti[c] = ('non verificabile', tr(u'dato volatile: serve il triage dal vivo o la RAM analizzata con '
+                                                    u'Volatility (vedi il README)'))
         self.esiti[2] = ('non verificabile', tr(u'non serve su un\'immagine: il Prefetch viene letto dal controllo 21'))
         passi = [
             # (se cambia il numero dei passi va aggiornato NUMERO_PASSI qui sotto)
@@ -581,6 +584,7 @@ class Triage(object):
             (tr(u'Cartelle di appoggio'), tc_c_file.appoggio),
             (tr(u'Cestino'), tc_c_file.cestino),
             (tr(u'Copie shadow'), tc_c_file.shadow),
+            (tr(u'Memoria (RAM)'), tc_memoria.analizza),
             (tr(u'Analisi degli eventi'), tc_c_eventi.analizza),
             (tr(u'Attivit\u00e0 pianificate: riepilogo'), tc_c_registro.riepilogo_attivita),
             (tr(u'Programmi eseguiti'), tc_c_registro.valuta_esecuzioni),

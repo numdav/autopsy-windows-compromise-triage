@@ -41,6 +41,7 @@ TESTS = [
     ('test_wmi_consumer.py', [r'sbagliati 0\s*$']),
     ('test_tempi.py', [r'fallite 0\s*$']),
     ('test_lingua.py', [r'prove fallite 0\s*$']),
+    ('test_memoria.py', [r'memoria: (\d+) prove, prove fallite 0\s*$']),
 ]
 
 

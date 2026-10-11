@@ -72,6 +72,7 @@ import tc_eventi
 import tc_c_registro
 import tc_c_eventi
 import tc_c_file
+import tc_memoria
 import tc_controlli
 import tc_report
 from tc_lingua import tr
@@ -462,6 +463,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         origine = OrigineAutopsy(dataSource, caso)
         progressBar.progress(tr(u'Cerco le installazioni di Windows'))
         radici, scartate = tc_origine.trova_radici(origine)
+        memorie = self._memorie(dataSource, caso, origine)
         per_radice = tc_controlli.NUMERO_PASSI + 1      # i controlli, piu' report e pubblicazione
         passi_totali = per_radice * len(radici)
         progressBar.switchToDeterminate(passi_totali)
@@ -490,6 +492,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
 
             try:
                 t = tc_controlli.Triage(radice, self._opzioni(), avanza, self.context.dataSourceIngestIsCancelled, registra)
+                t.memorie = memorie
                 t.esegui()
             except ERRORI:
                 esito = IngestModule.ProcessResult.ERROR
@@ -542,6 +545,33 @@ class TriageCompromissioneModule(DataSourceIngestModule):
 
     # ---- utilita' -----------------------------------------------------------
 
+    def _memorie(self, dataSource, caso, origine):
+        """I risultati di Volatility (collect_memory.py) che il triage puo'
+        usare: quelli che stanno in questa origine dati e quelli nelle altre
+        origini dati del caso. Questi ultimi il triage li usa solo se il nome
+        del computer coincide (vedi tc_memoria.analizza)."""
+        memorie = []
+        try:
+            for e in tc_memoria.trova(origine):
+                memorie.append(tc_memoria.Memoria(origine, e, self._nome(dataSource), True))
+        except ERRORI:
+            self.log(Level.WARNING, tr(u'Ricerca dei risultati della RAM non riuscita: ') + _traccia())
+        try:
+            altre = list(caso.getSleuthkitCase().getDataSources())
+        except ERRORI:
+            altre = []
+            self.log(Level.WARNING, tr(u'Elenco delle origini dati del caso non riuscito: ') + _traccia())
+        for altra in altre:
+            try:
+                if altra.getId() == dataSource.getId():
+                    continue
+                o = OrigineAutopsy(altra, caso)
+                for e in tc_memoria.trova(o):
+                    memorie.append(tc_memoria.Memoria(o, e, altra.getName(), False))
+            except ERRORI:
+                self.log(Level.WARNING, tr(u'Ricerca dei risultati della RAM non riuscita: ') + _traccia())
+        return memorie
+
     def _vuoto(self, t):
         """Vero se nell'origine non c'era nulla da analizzare. Se invece
         qualcosa c'era ma non si e' lasciato leggere, o un controllo si e'
@@ -550,6 +580,8 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         if t.segnali or t.esecuzioni or t.attivita or t.errori or t.non_letti:
             return False
         if t.contesto.get('computer') or t.contesto.get('prodotto') or t.contesto.get('utenti_sam'):
+            return False
+        if t.contesto.get('memorie'):
             return False
         if t.raccolta is not None and t.raccolta.copertura:
             return False

@@ -5,7 +5,8 @@ in a few minutes: **is this Windows machine compromised, and does it deserve a f
 
 Italian version of this page: [README.it.md](README.it.md)
 
-The module runs a 41-point compromise checklist on a disk image or on a set of logical files and gives a verdict:
+The module runs a 41-point compromise checklist on a disk image or on a set of logical files (and, when a memory
+image of the machine is available, on the results of Volatility 3) and gives a verdict:
 
 | Verdict | Meaning |
 | --- | --- |
@@ -24,6 +25,7 @@ with a self-contained HTML report.
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Memory (Volatility 3)](#memory-volatility-3)
 - [Where the results are](#where-the-results-are)
 - [How to read the results](#how-to-read-the-results)
 - [The 41 checks](#the-41-checks)
@@ -44,20 +46,25 @@ The module reads, with its own parsers:
 - the event logs (`.evtx`): Security, System, Application, PowerShell, Task Scheduler, Terminal Services, Windows
   Defender, WMI-Activity, Sysmon and a few more;
 - Prefetch, scheduled tasks, Startup folders, the WMI repository, `CryptnetUrlCache`, the PowerShell console history;
-- the logs of AnyDesk, TeamViewer, LogMeIn and Pulseway, the Windows Defender detection history, the Recycle Bin.
+- the logs of AnyDesk, TeamViewer, LogMeIn and Pulseway, the Windows Defender detection history, the Recycle Bin;
+- when a memory image of the machine was acquired: processes, connections and sessions, from the output of
+  Volatility 3 collected with the script in `collectors/` (see [Memory](#memory-volatility-3)).
 
 From these it looks for the traces an intrusion usually leaves: cleared logs, new or hidden accounts, logons from
 public addresses and password-guessing bursts, persistence (services, scheduled tasks, Run keys, WMI subscriptions),
 attack tools and dual-use tools, suspicious command lines, remote execution with Impacket and PsExec, remote access
 tools (RMM), antivirus detections, files left in staging folders, anti-forensics.
 
-It needs no other ingest module and no external program, and it is read-only: it never modifies the data source.
+It needs no other ingest module and no external program (for the memory, Volatility runs outside Autopsy, before
+the analysis), and it is read-only: it never modifies the data source.
 The results can be produced in English or in Italian.
 
 ## Requirements
 
 - Autopsy 4.19 or later (the module uses the analysis results and the scores introduced with 4.19).
 - Nothing else: the module is plain Jython 2.7 code and uses only what Autopsy ships with.
+- For the memory only: Python 3.8 or later and [Volatility 3](https://github.com/volatilityfoundation/volatility3)
+  2.4 or later, on the computer where the memory image is analyzed. Nothing has to be added to Autopsy.
 
 ## Installation
 
@@ -68,6 +75,9 @@ The results can be produced in English or in Italian.
 3. Copy the whole `TriageCompromissione` folder into it. The result must be
    `...\python_modules\TriageCompromissione\` containing `TriageCompromissione.py` and the `tc_*.py` files.
 4. Close and reopen Autopsy.
+
+In the release zip the folder also holds `collectors\collect_memory.py`, the script for the memory image (see
+[Memory](#memory-volatility-3)); Autopsy ignores it. In the repository the script is in `collectors/`.
 
 To update, replace the folder and restart Autopsy. A restart is also needed after any change to a `tc_*.py` file:
 Autopsy reloads only the main file by itself.
@@ -103,13 +113,83 @@ If the data source holds several Windows installations (several volumes, several
 each one gets its own verdict and its own report, up to six per data source. Further installations and
 `Windows.old` folders are not analyzed: a note in the report says so.
 
+## Memory (Volatility 3)
+
+A disk image does not contain what was running: processes, network connections, logged-on users. If a memory image
+of the machine was acquired (on the live machine, before anything else), the module can use it as well. The work is
+split in two, so that the verdict always comes from the same engine:
+
+- `collectors/collect_memory.py` **only collects**. It runs a fixed set of Volatility 3 plugins on the memory image
+  and keeps their JSON output unchanged, next to a manifest (`compromise-triage-memory.json`) that records the version
+  of Volatility, the SHA-256 of the image and how each plugin ended. It judges nothing.
+- The **module** finds that folder in the Autopsy case and applies its rules to it, the same rules it applies to the
+  disk.
+
+**1. Collect.** On the analysis workstation, never on the suspect machine:
+
+```
+py -3 -m pip install volatility3
+py -3 collect_memory.py D:\evidence\PC01.mem -o D:\case\PC01_vol3
+```
+
+(on Linux and macOS write `python3` instead of `py -3`). The script is in the `collectors` folder of the repository
+and of the release zip. `--vol` says how to start Volatility when it is not installed in the same Python (for
+example `--vol "py -3 C:\volatility3\vol.py"`); Volatility downloads the symbols of each Windows build from
+Microsoft the first time, so on a computer without Internet access use `--symbols` with a local symbol pack and
+`--offline`; `--timeout` stops a plugin that runs too long (default 120 minutes); `--no-hash` skips the SHA-256;
+`--lang en|it` chooses the language of the messages. Depending on the size of the image it takes from a few minutes
+to half an hour.
+
+| Volatility 3 plugin | Used for |
+| --- | --- |
+| `windows.info` | system time of the acquisition, Windows build |
+| `windows.pslist`, `windows.pstree`, `windows.psscan`, `windows.cmdline` | check 4: processes, command lines, parents, hidden processes |
+| `windows.netscan` (`windows.netstat` if netscan fails) | checks 5 and 7: connections and their processes |
+| `windows.sessions` | check 3: who was logged on, at the console or through Remote Desktop |
+| `windows.envars`, `windows.getsids` | the computer name, the user of each process |
+| `windows.svcscan` | services in memory that the registry no longer has (checks 17 and 29) |
+
+**2. Add the folder to the case** as **Logical Files**:
+
+- in the same data source as a triage collection of the same machine (KAPE...): put the folder next to it before
+  adding it;
+- or as a data source of its own, next to the disk image: the module pairs memory and disk by **computer name**
+  (the COMPUTERNAME variable of the processes against the name in the registry). The memory of another computer is
+  not used: a note in the report says so.
+
+Then run the module on the disk. If the memory is added after the disk was analyzed, run the module on the disk
+again: the new results replace the old ones. Run on the memory folder alone, the module gives a verdict from the
+memory only, with the coverage warnings for everything a disk would have shown.
+
+**3. What the module finds in memory.**
+
+- With the same rules as on the disk: attack tools and dual-use tools, programs running from folders where programs
+  do not belong (`C:\Users\Public`, `PerfLogs`, a `svchost.exe` outside System32...), command lines judged as for
+  events 4688 (encoded PowerShell, download and run...), remote access tools (they join checks 32-36), services with
+  the signatures of Impacket.
+- With rules that make sense only in memory, labeled *extra rule*: a process found by the memory scan but missing
+  from the list of active processes (*maybe hidden*), a system process with an unexpected parent or in more than one
+  copy, a document program or a web server that starts a command interpreter, a Windows program that does not
+  normally talk to the Internet (`rundll32.exe`, `mshta.exe`, `regsvr32.exe`...) with a connection to a public
+  address. A Remote Desktop session open at the time of the acquisition is reported as context.
+- The report gets the tables of sessions, processes, connections and SMB connections found in memory, and the
+  *System* table says which memory image was used, with its SHA-256.
+
+![The memory tables in the HTML report](docs/screenshots/report-memory-en.png)
+
+If a Volatility plugin produced nothing, the report says which one and which checks are incomplete, with a coverage
+warning: the verdict cannot be "No indicators found". The DNS cache (check 6) and the SMB sessions with their user and
+shares cannot be obtained with the standard plugins of Volatility 3: they remain with live triage. Autopsy's
+experimental memory data source (Windows only, based on Volatility 2.6) is a different thing and is not needed.
+
 ## Where the results are
 
 - **Ingest inbox** (the envelope at the top right): verdict, number of findings, path of the report.
 - **Autopsy tree, Analysis Results**:
   - *Compromise Triage: verdict*: one item per machine;
   - *Compromise Triage: findings*: one item per finding, attached to the file it comes from (hive, event log,
-    `.pf` file...).
+    `.pf` file, JSON file of Volatility...). The findings from a memory image kept in another data source are
+    attached to the data source that was analyzed.
 
   Decisive findings have the score *Notable*, findings to confirm *Likely Notable*, so they also show up under
   the *Score* node of the tree (Autopsy 4.21 or later).
@@ -175,7 +255,7 @@ the analysis.
 | No. | Phase | Check |
 | --- | --- | --- |
 | 1 | 1. Context and volatile data | System context |
-| 2-7 | | Prefetch copy, logged-on users, processes, network connections, DNS cache, SMB sessions: steps of live triage, *not applicable to a disk image* |
+| 2-7 | | Prefetch copy, logged-on users, processes, network connections, DNS cache, SMB sessions: steps of live triage, *not applicable to a disk image*; 3, 4, 5 and 7 are also done on a memory image (see [Memory](#memory-volatility-3)) |
 | 8 | 2. Accounts and logons | Log coverage and active auditing |
 | 9 | | Cleared logs |
 | 10 | | Local accounts, administrators, profiles |
@@ -211,11 +291,11 @@ the analysis.
 | 40 | | Shadow copies |
 | 41 | | Disabled artifacts |
 
-Checks 2 to 7 belong to live triage and the report marks them as "Cannot be verified". Check 2, the copy of the
-Prefetch folder, is not needed on an image, because check 21 reads Prefetch directly. Checks 3 to 7 concern
-volatile data, which a disk image does not contain: they need live triage, or a RAM dump analyzed with Volatility
-(Autopsy's Volatility module works on the dump, not on the disk image, and is independent of this plugin). All the
-other checks are run; the report has a table with the outcome of each one.
+Checks 2 to 7 belong to live triage. Check 2, the copy of the Prefetch folder, is not needed on an image, because
+check 21 reads Prefetch directly. Checks 3 to 7 concern volatile data, which a disk image does not contain: the
+report marks them as "Cannot be verified", unless the case holds the results of Volatility 3 on a memory image of
+the machine (see [Memory](#memory-volatility-3)); then checks 3, 4, 5 and 7 are done on the memory. All the other
+checks are run; the report has a table with the outcome of each one.
 
 Findings labeled **extra rule** come from well-known rules that are not part of the guides the checklist is built
 on (sticky keys, Defender exclusions, PowerShell history, port forwarding, hidden accounts...).
@@ -261,6 +341,11 @@ Two things to know:
 - Tools are searched by their known names. A renamed executable is recognized only from its version information,
   which is read for the 400 most recent executables in the staging folders (Downloads, Desktop, Public, Temp,
   ProgramData...).
+- Memory is a snapshot of one moment. A process that has already ended is visible only while its structure has not
+  been overwritten (psscan), and the command line and the user are missing for the processes whose memory was in the
+  paging file. A process *maybe hidden* must be confirmed: the memory scan sometimes finds the remains of a process
+  that has just ended.
+- In memory, a process name is truncated to 14 characters when Volatility cannot read the full path of the program.
 
 ## Tuning the rules
 
@@ -292,9 +377,11 @@ TriageCompromissione/     the plugin: this is the folder to copy into Autopsy
   tc_regole.py              the rules (lists and command-line evaluation)
   tc_registro.py, tc_evtx.py, tc_prefetch.py, tc_artefatti.py   the parsers
   tc_eventi.py, tc_origine.py, tc_base.py           event collection, data source access, helpers
+  tc_memoria.py             the memory: reads the output of Volatility 3 and judges it
   tc_report.py              HTML report and CSV
   tc_lingua.py, tc_lingua_en.py   language selection and the English catalog
-tests/                    tests of the rule engine (they need Jython only)
+collectors/collect_memory.py   runs Volatility 3 on a memory image (Python 3, outside Autopsy)
+tests/                    tests of the rule engine (Jython) and of the memory collector (Python 3)
 tools/check_translations.py   checks the English catalog against the code
 tools/make_release.py     builds the zip file to attach to a release
 docs/screenshots/         the images of this page
@@ -331,7 +418,15 @@ macOS use `java -jar .../jython-standalone-2.7.4.jar tests/run_tests.py`). The t
 lines, service definitions and synthetic timestamps to the rule engine and compare the outcome with the expected
 one, in both languages. They need neither Autopsy nor any evidence file.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the few rules to follow when changing the code.
+**Testing the memory collector** needs Python 3.8 or later, and neither Volatility nor a memory image: a small fake
+Volatility answers like the real one, including its failures:
+
+```
+python3 tests/test_collect_memory.py
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the few rules to follow when changing the code. To report a
+security problem, follow [SECURITY.md](SECURITY.md): privately, not in a public issue.
 
 ## Compatibility and tests
 
@@ -346,6 +441,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the few rules to follow when changing
   Ingest Modules window with the settings panel, ingest, inbox, results tree, list of reports). The update from
   version 1.0 was tested too: the saved settings, ingest settings that still name the old module, and a case that
   already holds the results of version 1.0.
+- Memory (version 1.2): the module was tested on the output of Volatility 3 for synthetic machines, produced with
+  Volatility's own classes (the real column definitions of each plugin and its JSON renderer) and with the columns
+  of the versions from 2.4 to 2.28; inside Autopsy 4.21.0 and 4.23.1, with the memory in the same data source as the
+  disk files and in a data source of its own. The collector was tested with a fake Volatility (success, failures,
+  timeouts, interruption) and with Volatility 3 2.28.2 on a file that is not a memory image. It was **not** tested on
+  a real memory image: on the first real case, compare its findings with the JSON files of Volatility, which are next
+  to the manifest. Without memory, the results of version 1.2 are identical to those of version 1.1 apart from the
+  note on checks 3-7.
 - These tests were done on Linux. Autopsy on Windows was **not** part of them: the program is the same, but fonts
   and window sizes may differ. Versions 4.19, 4.20 and 4.22 were not tested end to end: for those, the source code
   of Autopsy and of The Sleuth Kit was checked for the functions the plugin uses. On the first run, check that the
@@ -368,6 +471,13 @@ repository contains the tests that need no evidence files.
   (**Help > Open Log Folder**, file `autopsy.log.0`, search for "Triage").
 - **"Triage: no Windows artifacts in ..."**: the data source has no `Windows\System32\config` folder and no
   recognizable `.evtx` files or hives.
+- **Checks 3-7 still say "Cannot be verified" although the memory is in the case**: the module looks for the file
+  `compromise-triage-memory.json` written by the collector. Either the memory belongs to another computer (the
+  report has a note with both names), or it was added to the case after the disk was analyzed: run the module on the
+  disk again.
+- **collect_memory.py stops at the first plugin with "Unsatisfied requirement"**: Volatility found neither a Windows
+  kernel nor its symbols. Check that the file is a memory image of Windows; without Internet access, give Volatility
+  the symbol pack with `--symbols`.
 - **The report says some checks were interrupted by an error**: the other checks ran anyway; if there are no
   findings the verdict is "Needs review" instead of "No indicators found". Please open an issue with the error
   text.
@@ -379,8 +489,11 @@ The checklist behind the 41 checks is built on the 32 guides collected by Cyber 
 (10 September 2026), plus Cyber Triage's guide
 [How to Find WMI Consumers](https://www.cybertriage.com/blog/how-to-find-wmi-consumers/) for check 20.
 
-This project is independent: it is not affiliated with, nor endorsed by, Cyber Triage, Sleuth Kit Labs or the
-Autopsy project.
+The memory analysis relies on [Volatility 3](https://github.com/volatilityfoundation/volatility3) by the Volatility
+Foundation, which is installed separately and distributed under its own license: this project does not include it.
+
+This project is independent: it is not affiliated with, nor endorsed by, Cyber Triage, Sleuth Kit Labs, the
+Volatility Foundation or the Autopsy project.
 
 ## License
 

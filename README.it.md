@@ -6,8 +6,8 @@ compromessa, e merita un'analisi forense completa?**
 
 English version of this page: [README.md](README.md)
 
-Il modulo esegue su un'immagine del disco, oppure su un insieme di file logici, una checklist di 41 controlli e dà
-un verdetto:
+Il modulo esegue su un'immagine del disco, oppure su un insieme di file logici, una checklist di 41 controlli (e,
+quando c'è un'immagine della RAM della macchina, la applica anche ai risultati di Volatility 3) e dà un verdetto:
 
 | Verdetto | Significato |
 | --- | --- |
@@ -26,6 +26,7 @@ viene, e un report HTML in un solo file.
 - [Requisiti](#requisiti)
 - [Installazione](#installazione)
 - [Uso](#uso)
+- [RAM (Volatility 3)](#ram-volatility-3)
 - [Dove sono i risultati](#dove-sono-i-risultati)
 - [Come si legge](#come-si-legge)
 - [I 41 controlli](#i-41-controlli)
@@ -47,7 +48,9 @@ Il modulo legge da solo, con lettori propri:
   Windows Defender, WMI-Activity, Sysmon e qualche altro;
 - Prefetch, attività pianificate, cartelle di esecuzione automatica, repository WMI, `CryptnetUrlCache`,
   cronologia della console di PowerShell;
-- i log di AnyDesk, TeamViewer, LogMeIn e Pulseway, la cronologia dei rilevamenti di Windows Defender, il Cestino.
+- i log di AnyDesk, TeamViewer, LogMeIn e Pulseway, la cronologia dei rilevamenti di Windows Defender, il Cestino;
+- se è stata acquisita la RAM della macchina: processi, connessioni e sessioni, dall'output di Volatility 3 raccolto
+  con lo script della cartella `collectors/` (vedi [RAM](#ram-volatility-3)).
 
 Lì cerca le tracce che un'intrusione di solito lascia: registri cancellati, account nuovi o nascosti, accessi da
 indirizzi pubblici e raffiche di tentativi falliti, persistenza (servizi, attività pianificate, chiavi Run,
@@ -55,13 +58,15 @@ sottoscrizioni WMI), strumenti d'attacco e a doppio uso, righe di comando sospet
 e PsExec, strumenti di accesso remoto (RMM), rilevamenti dell'antivirus, file lasciati nelle cartelle di appoggio,
 anti-forensics.
 
-Non ha bisogno di altri moduli di ingest né di programmi esterni, e lavora in sola lettura: non modifica mai
-l'origine dati. I risultati si possono avere in italiano o in inglese.
+Non ha bisogno di altri moduli di ingest né di programmi esterni (per la RAM, Volatility si usa fuori da Autopsy,
+prima dell'analisi), e lavora in sola lettura: non modifica mai l'origine dati. I risultati si possono avere in italiano o in inglese.
 
 ## Requisiti
 
 - Autopsy 4.19 o successivo (il modulo usa i risultati di analisi e i punteggi introdotti con la 4.19).
 - Nient'altro: è codice Jython 2.7 e usa solo quello che Autopsy ha già con sé.
+- Solo per la RAM: Python 3.8 o successivo e [Volatility 3](https://github.com/volatilityfoundation/volatility3)
+  2.4 o successivo, sul computer su cui si analizza l'immagine della RAM. In Autopsy non va aggiunto nulla.
 
 ## Installazione
 
@@ -72,6 +77,9 @@ l'origine dati. I risultati si possono avere in italiano o in inglese.
 3. Copia lì dentro l'intera cartella `TriageCompromissione`. Deve risultare
    `...\python_modules\TriageCompromissione\` con dentro `TriageCompromissione.py` e i file `tc_*.py`.
 4. Chiudi e riapri Autopsy.
+
+Nello zip della release la cartella contiene anche `collectors\collect_memory.py`, lo script per l'immagine della
+RAM (vedi [RAM](#ram-volatility-3)); Autopsy lo ignora. Nel repository lo script sta in `collectors/`.
 
 Per aggiornare, sostituisci la cartella e riavvia Autopsy. Il riavvio serve anche dopo ogni modifica a un file
 `tc_*.py`: da sé Autopsy ricarica soltanto il file principale.
@@ -109,13 +117,84 @@ Se l'origine contiene più installazioni di Windows (più volumi, più macchine 
 suo verdetto e il suo report, fino a sei per origine dati. Le installazioni in più e le cartelle `Windows.old` non
 vengono analizzate: lo dice una nota nel report.
 
+## RAM (Volatility 3)
+
+Un'immagine del disco non contiene ciò che era in esecuzione: processi, connessioni di rete, utenti collegati. Se è
+stata acquisita la RAM della macchina (dal vivo, prima di qualunque altra cosa), il modulo può usare anche quella.
+Il lavoro è diviso in due, così il verdetto viene sempre dallo stesso motore:
+
+- `collectors/collect_memory.py` **raccoglie soltanto**. Esegue un insieme fisso di plugin di Volatility 3
+  sull'immagine della RAM e ne conserva l'output JSON così com'è, accanto a un manifesto
+  (`compromise-triage-memory.json`) che registra la versione di Volatility, lo SHA-256 dell'immagine e com'è finito
+  ogni plugin. Non giudica nulla.
+- Il **modulo** ritrova quella cartella nel caso di Autopsy e le applica le sue regole, le stesse che applica al
+  disco.
+
+**1. Raccogliere.** Sul computer di analisi, mai sulla macchina sospetta:
+
+```
+py -3 -m pip install volatility3
+py -3 collect_memory.py D:\reperti\PC01.mem -o D:\caso\PC01_vol3
+```
+
+(su Linux e macOS scrivi `python3` al posto di `py -3`). Lo script sta nella cartella `collectors` del repository e
+dello zip della release. `--vol` dice come avviare Volatility quando non è installato nello stesso Python (per
+esempio `--vol "py -3 C:\volatility3\vol.py"`); la prima volta Volatility scarica da Microsoft i simboli di ogni
+versione di Windows, quindi su un computer senza Internet usa `--symbols` con un pacchetto di simboli e `--offline`;
+`--timeout` ferma un plugin che dura troppo (predefinito 120 minuti); `--no-hash` salta lo SHA-256; `--lang it|en`
+sceglie la lingua dei messaggi. A seconda della dimensione dell'immagine servono da pochi minuti a mezz'ora.
+
+| Plugin di Volatility 3 | A cosa serve |
+| --- | --- |
+| `windows.info` | ora di sistema dell'acquisizione, build di Windows |
+| `windows.pslist`, `windows.pstree`, `windows.psscan`, `windows.cmdline` | controllo 4: processi, righe di comando, processi padre, processi nascosti |
+| `windows.netscan` (`windows.netstat` se netscan non riesce) | controlli 5 e 7: le connessioni e i loro processi |
+| `windows.sessions` | controllo 3: chi era collegato, alla console o con il Desktop remoto |
+| `windows.envars`, `windows.getsids` | il nome del computer, l'utente di ogni processo |
+| `windows.svcscan` | i servizi nella RAM che il registro non ha più (controlli 17 e 29) |
+
+**2. Aggiungere la cartella al caso** come **Logical Files**:
+
+- nella stessa origine dati di una raccolta di triage della stessa macchina (KAPE...): metti la cartella accanto
+  alla raccolta prima di aggiungerla;
+- oppure come origine dati a sé, accanto all'immagine del disco: il modulo abbina RAM e disco con il **nome del
+  computer** (la variabile COMPUTERNAME dei processi confrontata con il nome nel registro). La RAM di un altro
+  computer non viene usata: lo dice una nota nel report.
+
+Poi esegui il modulo sul disco. Se la RAM viene aggiunta dopo l'analisi del disco, esegui di nuovo il modulo sul
+disco: i risultati nuovi sostituiscono i vecchi. Eseguito sulla sola cartella della RAM, il modulo dà un verdetto
+dalla sola RAM, con gli avvisi di copertura per tutto quello che avrebbe mostrato un disco.
+
+**3. Che cosa trova il modulo nella RAM.**
+
+- Con le stesse regole del disco: strumenti d'attacco e a doppio uso, programmi che girano da cartelle dove i
+  programmi non stanno (`C:\Users\Public`, `PerfLogs`, un `svchost.exe` fuori da System32...), righe di comando
+  giudicate come per gli eventi 4688 (PowerShell codificato, scarica ed esegui...), strumenti di accesso remoto
+  (si aggiungono ai controlli 32-36), servizi con le firme di Impacket.
+- Con regole che hanno senso solo nella RAM, con l'etichetta *regola in più*: un processo trovato dalla scansione
+  della memoria ma assente dall'elenco dei processi attivi (*forse nascosto*), un processo di sistema con un padre
+  insolito o in più copie, un programma per documenti o un server web che avvia un interprete di comandi, un
+  programma di Windows che di norma non parla con Internet (`rundll32.exe`, `mshta.exe`, `regsvr32.exe`...) con una
+  connessione verso un indirizzo pubblico. Una sessione di Desktop remoto aperta al momento dell'acquisizione è
+  riportata come contesto.
+- Il report riceve le tabelle delle sessioni, dei processi, delle connessioni e delle connessioni SMB trovate nella
+  RAM, e la tabella *Sistema* dice quale immagine della RAM è stata usata, con il suo SHA-256.
+
+![Le tabelle della RAM nel report HTML](docs/screenshots/report-memory-it.png)
+
+Se un plugin di Volatility non ha prodotto nulla, il report dice quale e quali controlli sono incompleti, con un
+avviso di copertura: il verdetto non può essere «Nessun indizio». La cache DNS (controllo 6) e le sessioni SMB con
+utente e condivisioni non si ricavano con i plugin standard di Volatility 3: restano al triage dal vivo. La sorgente
+dati sperimentale per la memoria di Autopsy (solo su Windows, basata su Volatility 2.6) è un'altra cosa e non serve.
+
 ## Dove sono i risultati
 
 - **Posta di ingest** (la busta in alto a destra): verdetto, numero di segnali, percorso del report.
 - **Albero di Autopsy, Analysis Results**:
   - *Triage compromissione: verdetto*: una voce per macchina;
   - *Triage compromissione: segnali*: una voce per segnale, collegata al file da cui viene (hive, registro
-    eventi, file `.pf`...).
+    eventi, file `.pf`, file JSON di Volatility...). I segnali che vengono da una RAM tenuta in un'altra origine dati
+    sono collegati all'origine analizzata.
 
   I segnali decisivi hanno punteggio *Notable*, quelli da confermare *Likely Notable*: compaiono anche sotto il
   nodo *Score* dell'albero (da Autopsy 4.21).
@@ -182,7 +261,7 @@ l'analisi.
 | N. | Fase | Controllo |
 | --- | --- | --- |
 | 1 | 1. Contesto e dati volatili | Contesto del sistema |
-| 2-7 | | Copia del Prefetch, utenti collegati, processi, connessioni di rete, cache DNS, sessioni SMB: passi del triage dal vivo, *su un'immagine del disco non si applicano* |
+| 2-7 | | Copia del Prefetch, utenti collegati, processi, connessioni di rete, cache DNS, sessioni SMB: passi del triage dal vivo, *su un'immagine del disco non si applicano*; 3, 4, 5 e 7 si fanno anche su un'immagine della RAM (vedi [RAM](#ram-volatility-3)) |
 | 8 | 2. Account e accessi | Copertura dei log e audit attivi |
 | 9 | | Log cancellati |
 | 10 | | Account locali, amministratori, profili |
@@ -218,12 +297,12 @@ l'analisi.
 | 40 | | Copie shadow |
 | 41 | | Artefatti disattivati |
 
-I controlli da 2 a 7 appartengono al triage dal vivo e il report li indica come «Non verificabile». Il controllo
-2, la copia della cartella Prefetch, su un'immagine non serve, perché il Prefetch viene letto direttamente dal
-controllo 21. I controlli da 3 a 7 riguardano dati volatili, che su un'immagine del disco non esistono: per quelli
-serve il triage dal vivo, oppure un dump della RAM analizzato con Volatility (il modulo Volatility di Autopsy
-lavora sul dump, non sull'immagine del disco, ed è indipendente da questo plugin). Tutti gli altri controlli
-vengono eseguiti; il report ha una tabella con l'esito di ciascuno.
+I controlli da 2 a 7 appartengono al triage dal vivo. Il controllo 2, la copia della cartella Prefetch, su
+un'immagine non serve, perché il Prefetch viene letto direttamente dal controllo 21. I controlli da 3 a 7 riguardano
+dati volatili, che su un'immagine del disco non esistono: il report li indica come «Non verificabile», a meno che il
+caso non contenga i risultati di Volatility 3 su un'immagine della RAM della macchina (vedi [RAM](#ram-volatility-3));
+in quel caso i controlli 3, 4, 5 e 7 vengono fatti sulla RAM. Tutti gli altri controlli vengono eseguiti; il report ha
+una tabella con l'esito di ciascuno.
 
 I segnali con l'etichetta **regola in più** vengono da regole note che non fanno parte delle guide su cui è
 costruita la checklist (sticky keys, esclusioni di Defender, cronologia di PowerShell, inoltro di porta, account
@@ -270,6 +349,12 @@ Due cose da sapere:
 - I nomi cercati sono quelli degli strumenti noti. Un eseguibile rinominato si riconosce solo dalle informazioni
   di versione, che vengono lette per i 400 eseguibili più recenti delle cartelle di appoggio (Download, Desktop,
   Public, Temp, ProgramData...).
+- La RAM fotografa un istante. Un processo già terminato si vede solo finché la sua struttura non viene
+  sovrascritta (psscan), e per i processi la cui memoria era nel file di paging mancano la riga di comando e
+  l'utente. Un processo *forse nascosto* va confermato: a volte la scansione della memoria trova i resti di un
+  processo appena terminato.
+- Nella RAM il nome di un processo è troncato a 14 caratteri quando Volatility non riesce a leggere il percorso
+  completo del programma.
 
 ## Adattare gli elenchi
 
@@ -301,9 +386,11 @@ TriageCompromissione/     il plugin: è la cartella da copiare in Autopsy
   tc_regole.py              le regole (elenchi e valutazione delle righe di comando)
   tc_registro.py, tc_evtx.py, tc_prefetch.py, tc_artefatti.py   i lettori dei formati
   tc_eventi.py, tc_origine.py, tc_base.py           raccolta degli eventi, accesso all'origine dati, funzioni comuni
+  tc_memoria.py             la RAM: legge l'output di Volatility 3 e lo giudica
   tc_report.py              report HTML e CSV
   tc_lingua.py, tc_lingua_en.py   scelta della lingua e traduzioni inglesi
-tests/                    prove del motore delle regole (serve soltanto Jython)
+collectors/collect_memory.py   esegue Volatility 3 su un'immagine della RAM (Python 3, fuori da Autopsy)
+tests/                    prove del motore delle regole (Jython) e del raccoglitore della RAM (Python 3)
 tools/check_translations.py   confronta le traduzioni inglesi con il codice
 tools/make_release.py     prepara il file zip da allegare a una release
 docs/screenshots/         le immagini di questa pagina
@@ -340,7 +427,15 @@ su Windows Autopsy ha con sé anche Java:
 centinaia di righe di comando, definizioni di servizi e orari costruiti apposta e confrontano l'esito con quello
 atteso, nelle due lingue. Non hanno bisogno né di Autopsy né di reperti (immagini o file raccolti).
 
+**Provare il raccoglitore della RAM** richiede Python 3.8 o successivo, e né Volatility né un'immagine della RAM:
+un piccolo Volatility finto risponde come quello vero, errori compresi:
+
+```
+python3 tests/test_collect_memory.py
+```
+
 In [CONTRIBUTING.md](CONTRIBUTING.md) (in inglese) ci sono le poche regole da seguire quando si modifica il codice.
+Per segnalare un problema di sicurezza segui [SECURITY.md](SECURITY.md): in privato, non in una issue pubblica.
 
 ## Compatibilità e prove fatte
 
@@ -356,6 +451,14 @@ In [CONTRIBUTING.md](CONTRIBUTING.md) (in inglese) ci sono le poche regole da se
   risultati, elenco dei report). È stato provato anche l'aggiornamento dalla versione 1.0: le impostazioni
   salvate, le impostazioni di ingest che nominano ancora il vecchio modulo e un caso che contiene già i risultati
   della 1.0.
+- RAM (versione 1.2): il modulo è stato provato sull'output di Volatility 3 per macchine costruite apposta,
+  prodotto con le classi di Volatility stesso (le definizioni vere delle colonne di ogni plugin e il suo renderer
+  JSON) e con le colonne delle versioni dalla 2.4 alla 2.28; dentro Autopsy 4.21.0 e 4.23.1, con la RAM nella stessa
+  origine dati dei file del disco e in un'origine dati a sé. Il raccoglitore è stato provato con un Volatility finto
+  (riuscite, errori, tempi scaduti, interruzione) e con Volatility 3 2.28.2 su un file che non è un'immagine della
+  RAM. **Non** è stato provato su un'immagine della RAM vera: al primo caso reale confronta i suoi segnali con i file
+  JSON di Volatility, che stanno accanto al manifesto. Senza RAM, i risultati della versione 1.2 sono identici a
+  quelli della 1.1, salvo la nota sui controlli 3-7.
 - Queste prove sono state fatte su Linux. Autopsy su Windows **non** ne faceva parte: il programma è lo stesso, ma
   caratteri e dimensioni delle finestre possono cambiare. Le versioni 4.19, 4.20 e 4.22 non sono state provate
   dall'inizio alla fine: per quelle è stato controllato nel sorgente di Autopsy e di The Sleuth Kit che esistano
@@ -380,6 +483,12 @@ qui ci sono le prove che non hanno bisogno di file.
   Autopsy (**Help > Open Log Folder**, file `autopsy.log.0`, cerca «Triage»).
 - **«Triage: nessun artefatto di Windows in ...»**: nell'origine non c'è una cartella `Windows\System32\config` né
   file `.evtx` o hive riconoscibili.
+- **I controlli 3-7 restano «Non verificabile» anche se la RAM è nel caso**: il modulo cerca il file
+  `compromise-triage-memory.json` scritto dal raccoglitore. O la RAM è di un altro computer (il report ha una nota
+  con i due nomi), oppure è stata aggiunta al caso dopo l'analisi del disco: esegui di nuovo il modulo sul disco.
+- **collect_memory.py si ferma al primo plugin con «Unsatisfied requirement»**: Volatility non ha trovato né un
+  kernel di Windows né i suoi simboli. Controlla che il file sia un'immagine della RAM di Windows; senza Internet,
+  dai a Volatility il pacchetto dei simboli con `--symbols`.
 - **Il report segnala controlli interrotti da un errore**: gli altri controlli sono stati eseguiti lo stesso; se
   non ci sono segnali il verdetto è «Da verificare» invece di «Nessun indizio». Apri una issue con il testo
   dell'errore.
@@ -391,8 +500,11 @@ La checklist da cui vengono i 41 controlli è costruita sulle 32 guide raccolte 
 (10 settembre 2026), più la guida di Cyber Triage
 [How to Find WMI Consumers](https://www.cybertriage.com/blog/how-to-find-wmi-consumers/) per il controllo 20.
 
-Il progetto è indipendente: non è collegato a Cyber Triage, a Sleuth Kit Labs o al progetto Autopsy, né è da loro
-approvato.
+L'analisi della RAM si appoggia a [Volatility 3](https://github.com/volatilityfoundation/volatility3) della
+Volatility Foundation, che si installa a parte e ha una sua licenza: questo progetto non lo contiene.
+
+Il progetto è indipendente: non è collegato a Cyber Triage, a Sleuth Kit Labs, alla Volatility Foundation o al
+progetto Autopsy, né è da loro approvato.
 
 ## Licenza
 

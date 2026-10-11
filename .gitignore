@@ -11,6 +11,48 @@ dist/
 # Jython jars downloaded to run the tests
 jython-standalone-*.jar
 
+# Evidence and case data: NEVER commit them. Images, collections, cases and reports can hold personal
+# data, passwords and keys. Tests and examples use synthetic data only.
+# Memory images, memory artifacts and the folders written by collectors/collect_memory.py
+*.raw
+*.mem
+*.vmem
+*.vmsn
+*.vmss
+*.dmp
+*.lime
+*.core
+hiberfil.sys
+pagefile.sys
+swapfile.sys
+*_vol3/
+# Disk images and triage collections
+*.[Ee]01
+*.[Ee]x01
+*.[Ll]01
+*.[Ll]x01
+*.aff4
+*.ad1
+*.dd
+*.img
+*.vhd
+*.vhdx
+*.vmdk
+# Windows artifacts copied out of an image
+*.evtx
+*.pf
+*.hve
+NTUSER.DAT*
+UsrClass.dat*
+# Autopsy cases, with the reports and the CSV files written by the module
+*.aut
+autopsy.db
+ModuleOutput/
+Reports/
+*.html
+*.csv
+*.log
+
 # Editors and operating systems
 .idea/
 .vscode/
@@ -18,3 +60,4 @@ jython-standalone-*.jar
 Thumbs.db
 desktop.ini
 .DS_Store
+._*
