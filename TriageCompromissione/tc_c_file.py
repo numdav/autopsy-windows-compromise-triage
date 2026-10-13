@@ -136,7 +136,7 @@ def prefetch(t):
                       tr(u'La cartella Prefetch \u00e8 vuota su un Windows client') +
                       (u'' if attivo else tr(u' (il Prefetch \u00e8 disattivato nel registro: EnablePrefetcher = 0)')),
                       tr(u'Su un client in uso la cartella contiene centinaia di file: vuota, \u00e8 stata ripulita '
-                      u'oppure il Prefetch \u00e8 stato spento.'), 0, cartella[0])
+                      u'oppure il Prefetch \u00e8 stato spento.'), 0, cartella[0], oggetti=(R.chiave(u'prefetch', u'svuotato'),))
         return
     letti = 0
     errori = 0
@@ -176,7 +176,7 @@ def prefetch(t):
         t.segnala(21, R.DA_CONFERMARE, R.F_ANTIFORENSE,
                   tr(u'Il Prefetch contiene solo %d file su un Windows client') % letti,
                   tr(u'Su un client in uso ce ne sono centinaia: pochi file indicano una pulizia recente o un sistema appena installato.'),
-                  0, trovati[0])
+                  0, trovati[0], oggetti=(R.chiave(u'prefetch', u'svuotato'),))
     if not attivo and not server:
         t.segnala(21, R.INFORMATIVO, R.F_ANTIFORENSE, tr(u'Il Prefetch \u00e8 disattivato nel registro (EnablePrefetcher = 0)'),
                   u'', 0, t.contesto.get('hive_system'))
@@ -261,12 +261,13 @@ def avvio_automatico(t):
                     comando = tr(u'(destinazione non leggibile) ') + c['argomenti']
                     t.segnala(19, peso, R.F_PERSISTENZA, u'%s: %s (%s)' % (dove, e.nome, motivo),
                               tr(u'%s\nArgomenti: %s\nCreato: %s (UTC)') % (e.percorso, c['argomenti'][:1500], T(e.creato)),
-                              e.creato, e)
+                              e.creato, e, oggetti=(R.chiave_file(t.radice.relativo(e)),))
             elif nome.rsplit(u'.', 1)[-1] in _ESTENSIONI_PROGRAMMI:
                 peso = R.DA_CONFERMARE
                 motivo = tr(u'programma o script messo direttamente nella cartella Esecuzione automatica')
                 t.segnala(19, peso, R.F_PERSISTENZA, u'%s: %s (%s)' % (dove, e.nome, motivo),
-                          tr(u'%s\nCreato: %s (UTC)') % (e.percorso, T(e.creato)), e.creato, e)
+                          tr(u'%s\nCreato: %s (UTC)') % (e.percorso, T(e.creato)), e.creato, e,
+                          oggetti=(R.chiave_file(t.radice.relativo(e)),))
             righe.append([dove, u'Startup', e.nome, comando[:300], R.NOME_PESO.get(peso, u''), motivo])
     t.tabella(19, tr(u'Avvio automatico: chiavi Run e cartelle Esecuzione automatica'),
               [tr(u'Dove'), tr(u'Chiave'), tr(u'Nome'), tr(u'Comando'), tr(u'Peso'), tr(u'Motivo')], righe[:150])
@@ -355,7 +356,8 @@ def wmi(t):
                       tr(u'Filtro: %s\n%s%s\n\nTrovata nel repository: pu\u00f2 essere una voce gi\u00e0 rimossa.%s')
                       % (v['interrogazione'] or tr(u'(interrogazione non trovata)'), (v['testo'] or u'')[:1800],
                          (tr(u'\nComando in chiaro: ') + u' '.join(chiaro.split())[:1500]) if chiaro else u'',
-                         tr(u' Registrata il %s (evento 5861).') % T(ora) if ora else u''), ora, e)
+                         tr(u' Registrata il %s (evento 5861).') % T(ora) if ora else u''), ora, e,
+                      oggetti=(R.chiave(u'wmi', v['nome']),) + R.oggetti_comando(v['testo'] or u'', u'', chiaro or u''))
             righe.append([v['nome'], v['tipo'], v['filtro'], v['interrogazione'][:200], T(ora), R.NOME_PESO[peso]])
     t.tabella(20, tr(u'Sottoscrizioni WMI permanenti'), [tr(u'Consumer'), tr(u'Tipo'), tr(u'Filtro'), tr(u'Interrogazione'), tr(u'Registrata (5861)'), tr(u'Peso')],
               righe, tr(u'Escluse le due sottoscrizioni predefinite di Windows (SCM Event Log Consumer, BVTConsumer).'))
@@ -403,7 +405,8 @@ def cryptnet(t):
                   tr(u'%s nella cache dei download di certutil: %s') % (mostrato[0].upper() + mostrato[1:], url or e.nome),
                   tr(u'%s\nCreato: %s (UTC) - %s\nLa cartella di norma contiene solo certificati e liste di revoca: '
                   u'un programma qui \u00e8 stato scaricato con certutil o con le stesse API.') %
-                  (e.percorso, T(e.creato), _dimensione(e.dimensione)), e.creato, e)
+                  (e.percorso, T(e.creato), _dimensione(e.dimensione)), e.creato, e,
+                  oggetti=(R.chiave(u'url', url),) if url else ())
         righe.append([e.percorso, mostrato, url, T(e.creato), _dimensione(e.dimensione)])
     t.tabella(24, tr(u'CryptnetUrlCache: contenuti che non sono certificati'),
               [u'File', tr(u'Contenuto'), tr(u'URL di origine'), tr(u'Creato (UTC)'), tr(u'Dimensione')], righe,
@@ -436,7 +439,7 @@ def residui(t):
                 pass
         t.segnala(30, peso, famiglia, u'%s%s: %s' % (testo, stato, t.radice.relativo(e)),
                   tr(u'Creato: %s - modificato: %s (UTC) - %s%s') % (T(e.creato), T(e.modificato), _dimensione(e.dimensione), anteprima),
-                  e.creato or e.modificato, e, extra)
+                  e.creato or e.modificato, e, extra, oggetti=(R.chiave_file(t.radice.relativo(e)),))
         righe.append([t.radice.relativo(e) + stato, testo, T(e.creato), T(e.modificato), R.NOME_PESO[peso]])
 
     for e in t.radice.con_nome([u'__output'], cancellati=True):
@@ -612,10 +615,17 @@ def rmm(t):
         if (nome, e.cartella.lower()) in visti:
             continue
         visti.add((nome, e.cartella.lower()))
+        nota = u''
+        if peso >= R.DECISIVO and not _versione_conferma(t, e):
+            # un nome si copia: senza le informazioni di versione del file che lo
+            # confermino, uno strumento trovato solo per nome resta da confermare
+            peso = R.DA_CONFERMARE
+            nota = u'\n' + tr(u'Solo il nome: le informazioni di versione del file non confermano lo strumento (o il file '
+                               u'non le ha, o non si legge).')
         t.segnala(38, peso, R.famiglia_strumento(nome),
                   tr(u'%s sul disco%s: %s') % (cosa[0].upper() + cosa[1:], tr(u' (file cancellato)') if e.cancellato else u'', percorso),
-                  tr(u'Creato: %s - modificato: %s (UTC) - %s') % (T(e.creato), T(e.modificato), _dimensione(e.dimensione)),
-                  e.creato, e)
+                  tr(u'Creato: %s - modificato: %s (UTC) - %s') % (T(e.creato), T(e.modificato), _dimensione(e.dimensione)) + nota,
+                  e.creato, e, oggetti=(R.chiave_file(percorso),))
         righe.append((e.creato, [percorso + (tr(u' (cancellato)') if e.cancellato else u''), cosa, T(e.creato), T(e.modificato),
                                  _dimensione(e.dimensione), R.NOME_PESO[peso]]))
     righe.sort(key=lambda x: -x[0])
@@ -623,6 +633,29 @@ def rmm(t):
               [u'File', tr(u'Tipo'), tr(u'Creato (UTC)'), tr(u'Modificato (UTC)'), tr(u'Dimensione'), tr(u'Peso')], [x[1] for x in righe[:60]])
     _rinominati(t)
     t.fatto(33)
+
+
+def _versione_conferma(t, e):
+    """Vero se le informazioni di versione del file (nome originale, nome
+    interno, prodotto) indicano anche loro uno strumento d'attacco."""
+    if e.cancellato or e.dimensione < 4096 or e.dimensione > 512 * 1024 * 1024 \
+            or tc_origine.estensione(e.nome).lower() not in (u'exe', u'dll', u'sys', u'scr', u'com'):
+        return False
+    try:
+        info = tc_artefatti.pe_versione(e.leggi, e.dimensione)
+    except IOError, errore:
+        t.non_letto(e, errore)
+        info = None
+    except ERRORI:
+        info = None
+    finally:
+        e.chiudi()
+    if not info:
+        return False
+    for chiave in (u'OriginalFilename', u'InternalName', u'ProductName'):
+        if R.strumento(info.get(chiave, u''))[0] >= R.DECISIVO:
+            return True
+    return False
 
 
 def _rinominati(t):
@@ -673,7 +706,7 @@ def _rinominati(t):
                       tr(u'%s rinominato: %s') % (strumento, percorso),
                       tr(u'Informazioni di versione: produttore \u00ab%s\u00bb, prodotto \u00ab%s\u00bb, nome originale \u00ab%s\u00bb.\nCreato: %s (UTC)')
                       % (info.get(u'CompanyName', u''), info.get(u'ProductName', u''), info.get(u'OriginalFilename', u''), T(e.creato)),
-                      e.creato, e)
+                      e.creato, e, oggetti=(R.chiave_file(percorso),))
             continue
         if R.strumento(nome)[0]:
             continue        # gia' riconosciuto dal nome
@@ -684,7 +717,7 @@ def _rinominati(t):
                           tr(u'%s rinominato: %s (in origine \u00ab%s\u00bb)') % (cosa[0].upper() + cosa[1:], percorso, info.get(chiave)),
                           tr(u'Informazioni di versione: produttore \u00ab%s\u00bb, prodotto \u00ab%s\u00bb, nome originale \u00ab%s\u00bb.\nCreato: %s (UTC)')
                           % (info.get(u'CompanyName', u''), info.get(u'ProductName', u''), info.get(u'OriginalFilename', u''), T(e.creato)),
-                          e.creato, e)
+                          e.creato, e, oggetti=(R.chiave_file(percorso),))
                 break
     t.contesto['pe_esaminati'] = esaminati
 
@@ -764,7 +797,16 @@ def riepilogo_rmm(t):
                 break
         if elemento is None and sessioni:
             elemento = sessioni[-1]['elemento']
-        t.segnala(controllo, peso, R.F_RMM, testo, u'\n'.join(dettagli)[:3000], min(tempi) if tempi else 0, elemento)
+        # se tutte le tracce vengono dalla RAM, il segnale e' della RAM (e conta solo se conta lei)
+        dalla_ram = [x.get('ram') for x in prove + sessioni if x.get('ram') is not None]
+        precedente = t.ram_corrente
+        if dalla_ram and len(dalla_ram) == len(prove) + len(sessioni):
+            t.ram_corrente = dalla_ram[0]
+        try:
+            t.segnala(controllo, peso, R.F_RMM, testo, u'\n'.join(dettagli)[:3000], min(tempi) if tempi else 0, elemento,
+                      oggetti=(R.chiave(u'rmm', strumento),))
+        finally:
+            t.ram_corrente = precedente
         for p in prove[:30]:
             righe_prove.append([strumento, p['tipo'], p['dettaglio'][:300], T(p['ora'])])
         for s in sessioni[-60:]:
@@ -819,7 +861,8 @@ def defender(t):
         t.segnala(37, R.peso_minaccia(m), R.F_ANTIVIRUS,
                   tr(u'Defender ha rilevato %s (%d file nella cronologia dei rilevamenti)') % (m, g['n']),
                   tr(u'Rilevamento che non compare nel registro eventi (forse gi\u00e0 uscito dal registro).\nPrimo file: %s (UTC)\n%s')
-                  % (T(g['primo']), u'\n'.join(g['risorse'])[:1500]), g['primo'], g['elemento'])
+                  % (T(g['primo']), u'\n'.join(g['risorse'])[:1500]), g['primo'], g['elemento'],
+                  oggetti=(R.chiave(u'minaccia', m),))
     t.fatto(37)
 
 
@@ -877,7 +920,8 @@ def cronologia_powershell(t):
                 t.segnala(25, trovato[0], trovato[1],
                           tr(u'Cronologia di PowerShell di %s, riga %d: %s') % (utente, numero + 1, trovato[2]),
                           tr(u'%s%s\nIl file non registra gli orari: l\'ultima modifica \u00e8 del %s (UTC).')
-                          % (riga[:1500], chiaro, T(e.modificato)), 0, e, True)
+                          % (riga[:1500], chiaro, T(e.modificato)), 0, e, True,
+                          oggetti=R.oggetti_comando(riga, u'', trovato[3] or u''))
     t.tabella(25, tr(u'Cronologia della console di PowerShell: righe segnalate'), [tr(u'Utente'), tr(u'Riga'), tr(u'Comando'), tr(u'Motivo'), tr(u'Peso')],
               righe[:80])
 
@@ -950,7 +994,8 @@ def appoggio(t):
             t.segnala(38, R.DA_CONFERMARE, R.F_FILE,
                       tr(u'Nome di file con il carattere che inverte il verso del testo: %s') % percorso,
                       tr(u'Il carattere U+202E fa leggere al contrario la fine del nome e camuffa l\'estensione vera (.%s).\n'
-                      u'Creato: %s - modificato: %s (UTC)') % (est, T(e.creato), T(e.modificato)), e.creato, e, True)
+                      u'Creato: %s - modificato: %s (UTC)') % (est, T(e.creato), T(e.modificato)), e.creato, e, True,
+                      oggetti=(R.chiave_file(percorso),))
         if archivio and est in (u'vhd', u'vhdx', u'iso', u'img') and u'/hyper-v/' in dove:
             pass        # i dischi delle macchine virtuali di Hyper-V stanno li' di norma
         elif archivio and e.dimensione >= 100 * 1024 * 1024 and sospetta and grandi < 10:
@@ -959,7 +1004,7 @@ def appoggio(t):
             t.segnala(38, R.DA_CONFERMARE, R.F_FILE,
                       tr(u'Archivio di %s in una cartella di appoggio: %s') % (_dimensione(e.dimensione), percorso),
                       tr(u'Creato: %s - modificato: %s (UTC). Un grande archivio qui pu\u00f2 essere dati pronti per l\'esfiltrazione.')
-                      % (T(e.creato), T(e.modificato)), e.creato, e)
+                      % (T(e.creato), T(e.modificato)), e.creato, e, oggetti=(R.chiave_file(percorso),))
         elif not archivio and sospetta and est != u'dll' and segnalati < 20:
             z = R.zona(percorso)
             in_temp_di_windows = dove.endswith(u'/windows/temp/') and est in (u'exe', u'ps1', u'bat', u'cmd', u'vbs', u'js', u'hta') \
@@ -970,7 +1015,7 @@ def appoggio(t):
                 t.segnala(38, R.DA_CONFERMARE, R.F_FILE, tr(u'Programma o script recente in una cartella di appoggio: %s') % percorso,
                           tr(u'Creato: %s - modificato: %s (UTC) - %s%s') % (T(e.creato), T(e.modificato), _dimensione(e.dimensione),
                                                                         tr(u'\nScaricato da: ') + da_dove if da_dove else u''),
-                          e.creato, e)
+                          e.creato, e, oggetti=(R.chiave_file(percorso),))
         righe.append((quando, [percorso, T(e.creato), T(e.modificato), _dimensione(e.dimensione), da_dove, nota]))
     # eseguibili travestiti: contenuto MZ ed estensione innocua nelle cartelle sospette
     try:
@@ -991,7 +1036,8 @@ def appoggio(t):
             t.segnala(38, R.DA_CONFERMARE, R.F_FILE,
                       tr(u'Programma salvato con un\'estensione innocua: %s') % percorso,
                       tr(u'Il file inizia con MZ (eseguibile di Windows) ma ha estensione .%s.\nCreato: %s - modificato: %s (UTC) - %s')
-                      % (e.nome.rsplit(u'.', 1)[-1], T(e.creato), T(e.modificato), _dimensione(e.dimensione)), e.creato, e)
+                      % (e.nome.rsplit(u'.', 1)[-1], T(e.creato), T(e.modificato), _dimensione(e.dimensione)), e.creato, e,
+                      oggetti=(R.chiave_file(percorso),))
             righe.append((max(e.creato, e.modificato), [percorso, T(e.creato), T(e.modificato), _dimensione(e.dimensione),
                                                          provenienza(e), tr(u'eseguibile con estensione innocua')]))
     righe.sort(key=lambda x: -x[0])
@@ -1080,10 +1126,12 @@ def cestino(t):
             continue
         peso, cosa = R.strumento(v['percorso'])
         if peso >= R.DA_CONFERMARE:
+            # nel Cestino c'e' solo il nome: uno strumento d'attacco resta da confermare
+            peso = min(peso, R.DA_CONFERMARE)
             t.segnala(39, peso, R.famiglia_strumento(v['percorso']),
                       tr(u'%s buttato nel Cestino: %s') % (cosa[0].upper() + cosa[1:], v['percorso']),
                       tr(u'Cancellato da %s il %s (UTC) - %s') % (v['utente'], T(v['ora']), _dimensione(v['dimensione'])),
-                      v['ora'], v['elemento'])
+                      v['ora'], v['elemento'], oggetti=(R.chiave_file(v['percorso']),))
     t.fatto(39)
 
 
@@ -1124,7 +1172,8 @@ def shadow(t):
                   tr(u'Nessuna copia shadow sul disco e %s \u00e8 stato eseguito (ultimo avvio: %s)')
                   % (R.nome_base(vssadmin['percorso']), T(vssadmin['ora'])),
                   tr(u'L\'esecuzione non prova la cancellazione: cerca \u00abdelete shadows\u00bb negli eventi 4688 e nei log di PowerShell. '
-                  u'Fonte: %s.') % vssadmin['fonte'], vssadmin['ora'], vssadmin['elemento'])
+                  u'Fonte: %s.') % vssadmin['fonte'], vssadmin['ora'], vssadmin['elemento'],
+                  oggetti=(R.chiave_file(vssadmin['percorso']),))
     elif t.contesto.get('ripristino_spento'):
         t.esito(40, 'fatto', tr(u'nessuna copia: il ripristino di sistema \u00e8 disattivato'))
     else:

@@ -208,17 +208,21 @@ try:
     t_it, html_it, csv_it, riassunto_it, stato_it, titoli_it = esiti[IT]
     t_en, html_en, csv_en, riassunto_en, stato_en, titoli_en = esiti[EN]
     prova('il verdetto e\' lo stesso oggetto nelle due lingue', (t_it.verdetto, t_en.verdetto),
-          (tc_controlli.V_COMPROMESSA, tc_controlli.V_COMPROMESSA))
+          (tc_controlli.V_INDICATORI, tc_controlli.V_INDICATORI))
     prova('stesse famiglie', [s.famiglia for s in t_en.segnali], [s.famiglia for s in t_it.segnali])
-    prova('riassunto in italiano', riassunto_it, u'COMPROMISSIONE PROBABILE - 1 decisivi, 1 da confermare')
-    prova('riassunto in inglese', riassunto_en, u'LIKELY COMPROMISED - 1 decisive, 1 to confirm')
+    prova('riassunto in italiano', riassunto_it,
+          u'INDICATORI DI COMPROMISSIONE - 1 fatto decisivo (1 segnale), 1 fatto da confermare (1 segnale)')
+    prova('riassunto in inglese', riassunto_en,
+          u'INDICATORS OF COMPROMISE - 1 decisive fact (1 signal), 1 fact to confirm (1 signal)')
     prova('stato del controllo', (stato_it, stato_en), (u'Segnale decisivo', u'Decisive finding'))
     prova('titoli dei controlli', (titoli_it, titoli_en),
           ([u'Prefetch', u'Comandi sospetti (eventi 4688, Sysmon, PowerShell)'],
            [u'Prefetch', u'Suspicious commands (events 4688, Sysmon, PowerShell)']))
     prova('lingua dichiarata nel report', (u'<html lang="it">' in html_it, u'<html lang="en">' in html_en), (True, True))
-    prova('verdetto nel report', (u'COMPROMISSIONE PROBABILE' in html_it, u'LIKELY COMPROMISED' in html_en,
+    prova('verdetto nel report', (u'INDICATORI DI COMPROMISSIONE' in html_it, u'INDICATORS OF COMPROMISE' in html_en,
                                   u'COMPROMISSIONE' in html_en), (True, True, False))
+    prova('avvertenza sul verdetto nel report', (u'Verdetto euristico di triage' in html_it, u'Heuristic triage verdict' in html_en),
+          (True, True))
     # il testo del report, senza il foglio di stile e senza i tag (i nomi delle classi e delle ancore sono italiani)
     solo_testo = re.sub(u'<[^>]*>', u' ', html_en[html_en.find(u'</style>'):]).lower()
     prova('nessuna parola italiana nel report inglese', sorted(set(SPIE.findall(solo_testo))), [])

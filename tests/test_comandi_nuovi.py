@@ -119,7 +119,14 @@ CASI = [
  (u'ssh -R 3389:127.0.0.1:3389 root@1.2.3.4 -N', 2),
  (u'C:\\Windows\\System32\\OpenSSH\\ssh.exe -N -R 9000:localhost:3389 user@host', 2),
  (u'ssh -p 22 user@host', 0),
- (u'ssh user@host -L 8080:localhost:80', 0),
+ # 1.3: anche -L e -D (proxy SOCKS) sono tunnel, da confermare; -l (minuscola) e' il nome dell'utente
+ (u'ssh user@host -L 8080:localhost:80', 2),
+ (u'ssh -D 9999 -N kali@10.0.0.110', 2),
+ (u'ssh.exe -NfD 1080 user@203.0.113.9', 2),
+ (u'ssh -fNL 3306:db:3306 user@jump', 2),
+ (u'ssh -l admin host', 0),
+ (u'ssh -oLogLevel=ERROR -p 2222 user@host', 0),
+ (u'ssh -v -i C:\\Users\\x\\.ssh\\id_rsa user@host', 0),
  (u'ssh-keygen -R host', 0),
  (u'openssh -R 1:2:3 host', 0),
  # --- dati verso l'esterno

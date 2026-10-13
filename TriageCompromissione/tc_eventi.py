@@ -14,13 +14,13 @@ import re
 import tc_evtx
 import tc_artefatti
 import tc_regole as R
-from tc_base import ERRORI
+from tc_base import ERRORI, orario_da_testo
 from tc_lingua import tr
 
 # Eventi letti per ciascun registro (gli altri vengono saltati in fretta)
 ID_SICUREZZA = set([1102, 4624, 4625, 4648, 4688, 4697, 4698, 4699, 4702, 4720, 4722, 4724, 4726,
                     4728, 4732, 4756, 5145])
-ID_SISTEMA = set([104, 7045, 7009])
+ID_SISTEMA = set([12, 104, 7045, 7009])
 ID_APPLICAZIONI = set([102, 104, 105, 202, 205, 24001, 1033, 11707])
 ID_PER_FILE = {
     u'security.evtx': ID_SICUREZZA,
@@ -69,6 +69,11 @@ def _in_utf16(testo):
 # Gli eventi 5145 che interessano contengono una di queste stringhe (in
 # minuscolo, UTF-16): gli altri vengono solo contati.
 _SEGNI_5145 = [_in_utf16(x) for x in (u'svcctl', u'atsvc', u'psexesvc', u'remcom', u'paexec', u'admin$', u'\\c$')]
+
+def _computer(ev):
+    """Il nome del computer che ha scritto l'evento, senza dominio e in minuscolo."""
+    return (ev.get('Computer') or u'').split(u'.')[0].lower()
+
 
 def _intero(valore, predefinito=-1):
     try:
@@ -145,12 +150,15 @@ class Raccolta(object):
         self.rmm = []
         self.installazioni = []
         self.computer = set()        # nomi con cui la macchina compare nei propri eventi
+        self.nomi = {}               # nome del computer (minuscolo) -> [primo, ultimo, quanti, nome] negli eventi di Security e System
+        self.avvii = []              # avvii di Windows (evento 12 di Kernel-General): ora, computer, build
         self._giudizi = {}           # (processo, riga di comando) -> riscontri gia' calcolati
         self.non_letti = []          # (elemento, blocchi non letti) per i registri con errori di lettura
         self.non_validi = []         # file .evtx che non hanno l'intestazione di un registro eventi
         self.gestori = {
             (u'microsoft-windows-eventlog', 1102): self._cancellato,
             (u'microsoft-windows-eventlog', 104): self._cancellato,
+            (u'microsoft-windows-kernel-general', 12): self._avvio,
             (u'microsoft-windows-security-auditing', 4624): self._4624,
             (u'microsoft-windows-security-auditing', 4625): self._4625,
             (u'microsoft-windows-security-auditing', 4648): self._4648,
@@ -208,10 +216,25 @@ class Raccolta(object):
             return 0
         self._elemento = elemento
         pulseway = nome == u'pulseway-commandaudit.evtx'
+        propri = nome in (u'security.evtx', u'system.evtx')
         utili = 0
         gestori = self.gestori
+        nomi = self.nomi
         try:
             for ev in log.eventi(id_voluti=voluti, annullato=annullato, filtro=self._filtro):
+                if propri and ev['Computer']:
+                    # i nomi che la macchina ha avuto: servono a riconoscere la sua installazione
+                    chi = ev['Computer'].split(u'.')[0]
+                    v = nomi.get(chi.lower())
+                    if v is None:
+                        if len(nomi) < 50:
+                            nomi[chi.lower()] = [ev['Ora'], ev['Ora'], 1, chi]
+                    else:
+                        if ev['Ora'] and (not v[0] or ev['Ora'] < v[0]):
+                            v[0] = ev['Ora']
+                        if ev['Ora'] > v[1]:
+                            v[1] = ev['Ora']
+                        v[2] += 1
                 provider = ev['Provider'].lower()
                 g = gestori.get((provider, ev['EventID']))
                 try:
@@ -270,7 +293,19 @@ class Raccolta(object):
         canale = d.get(u'Channel') or (u'Security' if ev['EventID'] == 1102 else ev['Canale'])
         self.cancellazioni.append({'ora': ev['Ora'], 'id': ev['EventID'], 'registro': canale,
                                    'utente': _utente(d.get(u'SubjectDomainName'), d.get(u'SubjectUserName')),
-                                   'elemento': self._elemento})
+                                   'computer': _computer(ev), 'elemento': self._elemento})
+
+    def _avvio(self, ev):
+        d = ev['Dati']
+        ora = 0.0
+        try:
+            ora = orario_da_testo(d.get(u'StartTime') or u'')
+        except ERRORI:
+            ora = 0.0
+        if len(self.avvii) < 5000:
+            self.avvii.append({'ora': ora or ev['Ora'], 'scritto': ev['Ora'], 'record': ev['Record'],
+                               'computer': ev['Computer'].split(u'.')[0].lower(),
+                               'build': _intero(d.get(u'BuildVersion')), 'elemento': self._elemento})
 
     # ---- accessi ----------------------------------------------------------
 
@@ -357,14 +392,14 @@ class Raccolta(object):
         if not utente or utente == u'-':
             utente = d.get(u'SubjectUserName') or u'-'
         self._processo(ev['Ora'], d.get(u'NewProcessName') or u'', d.get(u'CommandLine') or u'',
-                       d.get(u'ParentProcessName') or u'', utente, u'4688')
+                       d.get(u'ParentProcessName') or u'', utente, u'4688', _computer(ev))
 
     def _sysmon1(self, ev):
         d = ev['Dati']
         self._processo(ev['Ora'], d.get(u'Image') or u'', d.get(u'CommandLine') or u'',
-                       d.get(u'ParentImage') or u'', d.get(u'User') or u'-', u'Sysmon 1')
+                       d.get(u'ParentImage') or u'', d.get(u'User') or u'-', u'Sysmon 1', _computer(ev))
 
-    def _processo(self, ora, immagine, riga, padre, utente, fonte):
+    def _processo(self, ora, immagine, riga, padre, utente, fonte, computer=u''):
         self.processi_totali += 1
         if riga:
             self.processi_con_riga += 1
@@ -380,6 +415,9 @@ class Raccolta(object):
             trovati = self._giudica_processo(immagine, nome, riga)
             if len(self._giudizi) < 50000:
                 self._giudizi[(immagine, riga)] = trovati
+        legati = giudica_padre(padre, nome, riga)
+        if legati:
+            trovati = trovati + legati
         for peso, famiglia, cosa, per_riga, chiaro in trovati:
             chiave = (immagine.lower(), testo[:300] if per_riga else u'', cosa)
             r = self.processi.get(chiave)
@@ -388,7 +426,7 @@ class Raccolta(object):
                     continue
                 r = {'n': 0, 'primo': ora, 'ultimo': ora, 'processo': immagine, 'riga': testo, 'righe': [],
                      'padre': padre, 'utente': utente, 'motivo': cosa, 'peso': peso, 'chiaro': chiaro,
-                     'famiglia': famiglia, 'fonte': fonte, 'elemento': self._elemento}
+                     'famiglia': famiglia, 'fonte': fonte, 'elemento': self._elemento, 'computer': computer}
                 self.processi[chiave] = r
             r['n'] += 1
             if len(r['righe']) < 6 and testo not in r['righe']:
@@ -409,7 +447,8 @@ class Raccolta(object):
             self.servizi.append({'ora': ev['Ora'], 'nome': d.get(u'ServiceName') or u'',
                                  'percorso': d.get(u'ImagePath') or u'', 'tipo': d.get(u'ServiceType') or u'',
                                  'avvio': d.get(u'StartType') or u'', 'account': d.get(u'AccountName') or u'',
-                                 'utente': ev['SidUtente'], 'fonte': u'7045', 'elemento': self._elemento})
+                                 'utente': ev['SidUtente'], 'fonte': u'7045', 'computer': _computer(ev),
+                                 'elemento': self._elemento})
 
     def _4697(self, ev):
         d = ev['Dati']
@@ -419,7 +458,7 @@ class Raccolta(object):
                                  'percorso': d.get(u'ServiceFileName') or u'', 'tipo': d.get(u'ServiceType') or u'',
                                  'avvio': d.get(u'ServiceStartType') or u'', 'account': d.get(u'ServiceAccount') or u'',
                                  'utente': _utente(d.get(u'SubjectDomainName'), d.get(u'SubjectUserName')),
-                                 'fonte': u'4697', 'elemento': self._elemento})
+                                 'fonte': u'4697', 'computer': _computer(ev), 'elemento': self._elemento})
 
     def _7009(self, ev):
         d = ev['Dati']
@@ -629,9 +668,15 @@ class Raccolta(object):
                 return
             r = {'ora': ev['Ora'], 'n': 0, 'percorso': d.get(u'Path') or u'', 'motivo': motivo, 'peso': peso,
                  'estratto': u' '.join(estratto.split()), 'utente': ev['SidUtente'], 'fonte': u'4104',
-                 'elemento': self._elemento, 'famiglia': famiglia}
+                 'elemento': self._elemento, 'famiglia': famiglia, 'oggetti': [], 'computer': _computer(ev)}
             self.powershell[chiave] = r
         r['n'] += 1
+        # gli oggetti: il blocco (ScriptBlockId) e il suo testo, che e' anche il
+        # comando in chiaro di un "powershell -enc" visto negli eventi 4688 o 400
+        if len(r['oggetti']) < 20:
+            for k in (R.chiave(u'script', d.get(u'ScriptBlockId')), R.chiave_testo(testo) if intero else u''):
+                if k and k not in r['oggetti']:
+                    r['oggetti'].append(k)
         if ev['Ora'] and ev['Ora'] < r['ora']:
             r['ora'] = ev['Ora']
 
@@ -688,7 +733,9 @@ class Raccolta(object):
             if g.decodificato:
                 estratto += tr(u'\nComando in chiaro: ') + u' '.join(g.decodificato.split())[:800]
             r = {'ora': ev['Ora'], 'n': 0, 'percorso': u'', 'motivo': motivo, 'peso': peso, 'famiglia': famiglia,
-                 'estratto': estratto, 'utente': u'', 'fonte': u'400', 'elemento': self._elemento}
+                 'estratto': estratto, 'utente': u'', 'fonte': u'400', 'elemento': self._elemento,
+                 'oggetti': [k for k in (R.chiave_comando(riga), R.chiave_testo(g.decodificato)) if k],
+                 'codificato': bool(g.decodificato), 'computer': _computer(ev)}
             self.powershell[chiave] = r
         r['n'] += 1
         if ev['Ora'] and ev['Ora'] < r['ora']:
@@ -731,6 +778,37 @@ class Raccolta(object):
         if nome and len(self.installazioni) < 500:
             self.installazioni.append({'ora': ev['Ora'], 'strumento': nome, 'prodotto': prodotto,
                                        'elemento': self._elemento})
+
+
+def giudica_padre(padre, nome, riga):
+    """I riscontri sul rapporto tra un processo e il suo padre (eventi 4688 e
+    Sysmon, RAM), nello stesso formato di giudica_processo. padre: il percorso
+    o il nome del processo padre ('' se non si conosce); nome: il programma
+    del figlio in minuscolo."""
+    trovati = []
+    base = R.nome_base(padre) if padre else u''
+    if base in R.PADRI_MAI_INTERPRETI and (nome in R.INTERPRETI or nome in R.RICOGNIZIONE):
+        trovati.append((R.DECISIVO, R.F_ESECUZIONE,
+                        tr(u'avviato da %s, un processo di sistema che non avvia mai programmi come questo: codice '
+                           u'estraneo dentro un processo di sistema') % base, False, u''))
+    elif base == u'services.exe' and nome in R.SHELL:
+        trovati.append((R.DA_CONFERMARE, R.F_LATERALE,
+                        tr(u'interprete di comandi avviato direttamente da services.exe: un servizio che esegue un '
+                           u'comando, come fanno PsExec e smbexec'), False, u''))
+    if base in R.STRUMENTI_DI_RETE and nome in R.SHELL:
+        trovati.append((R.DECISIVO, R.F_ESECUZIONE,
+                        tr(u'shell avviata da %s: comandata a distanza attraverso uno strumento di rete') % base,
+                        False, u''))
+    if nome == u'werfaultsecure.exe' and riga and R.RX_WER_PID.search(riga) and base not in R.PADRI_WER:
+        if base:
+            trovati.append((R.DECISIVO, R.F_ANTIFORENSE,
+                            tr(u'WerFaultSecure.exe lanciato da %s contro un altro processo (/pid): la tecnica EDR-Freeze '
+                               u'per sospendere l\'antivirus o l\'EDR') % base, True, u''))
+        else:
+            trovati.append((R.DA_CONFERMARE, R.F_ANTIFORENSE,
+                            tr(u'WerFaultSecure.exe lanciato contro un altro processo (/pid) da un processo che non si '
+                               u'conosce: pu\u00f2 essere la tecnica EDR-Freeze'), True, u''))
+    return trovati
 
 
 def giudica_processo(immagine, nome, riga):

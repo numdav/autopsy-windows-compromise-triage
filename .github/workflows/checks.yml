@@ -4,12 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 jobs:
-  checks:
+  python:
+    # tools and memory collector with the latest Python
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -18,30 +21,81 @@ jobs:
         with:
           python-version: "3.x"
 
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "17"
-
       - name: English catalog matches the code
         run: python3 tools/check_translations.py
 
       - name: Memory collector tests
         run: python3 tests/test_collect_memory.py
 
-      # The same Jython versions that Autopsy ships: 2.7.2 (4.19-4.21) and 2.7.4 (4.22-4.23)
-      - name: Download Jython
+      - name: Case verifier compiles
+        run: python3 -m py_compile tools/verify_case.py
+
+  python38:
+    # the oldest Python the collector supports (the README asks for 3.8 or later)
+    runs-on: ubuntu-latest
+    container: python:3.8-slim
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Memory collector tests with Python 3.8
+        run: python3 tests/test_collect_memory.py
+
+      - name: Case verifier compiles with Python 3.8
+        run: python3 -m py_compile tools/verify_case.py
+
+  jython:
+    # the engine with the Jython that Autopsy 4.23.1 ships (2.7.4) and the Java it needs (21)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download Jython 2.7.4 and check it against Maven Central's checksum
         run: |
-          for version in 2.7.2 2.7.4; do
-            curl -fsSL -o "jython-standalone-$version.jar" \
-              "https://repo1.maven.org/maven2/org/python/jython-standalone/$version/jython-standalone-$version.jar"
-          done
+          base=https://repo1.maven.org/maven2/org/python/jython-standalone/2.7.4
+          curl -fsSL -o jython-standalone-2.7.4.jar "$base/jython-standalone-2.7.4.jar"
+          curl -fsSL -o jython.sha1 "$base/jython-standalone-2.7.4.jar.sha1"
+          echo "$(cut -c1-40 jython.sha1)  jython-standalone-2.7.4.jar" | sha1sum -c -
+          sha256sum jython-standalone-2.7.4.jar
 
-      - name: Sources compile with Jython 2.7.2
-        run: java -jar jython-standalone-2.7.2.jar -m compileall -q TriageCompromissione
-
-      - name: Tests with Jython 2.7.2
-        run: java -jar jython-standalone-2.7.2.jar tests/run_tests.py
+      - name: Sources compile with Jython 2.7.4
+        run: java -jar jython-standalone-2.7.4.jar -m compileall -q TriageCompromissione
 
       - name: Tests with Jython 2.7.4
         run: java -jar jython-standalone-2.7.4.jar tests/run_tests.py
+
+  release:
+    # the release zip is rebuilt from the sources; on a published release it must be identical to the one attached
+    runs-on: ubuntu-latest
+    needs: [python, python38, jython]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Build the release zip
+        run: python3 tools/make_release.py
+
+      - name: SHA-256 of the artifacts
+        run: sha256sum dist/*.zip collectors/collect_memory.py tools/verify_case.py | tee dist/SHA256SUMS.txt
+
+      - name: Compare with the assets attached to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir attached
+          gh release download "$TAG" --dir attached --pattern '*.zip' --pattern 'collect_memory.py' --pattern 'verify_case.py'
+          cmp dist/TriageCompromissione-*.zip attached/TriageCompromissione-*.zip
+          cmp collectors/collect_memory.py attached/collect_memory.py
+          cmp tools/verify_case.py attached/verify_case.py
+          echo "The attached assets are identical to the ones rebuilt from $TAG"

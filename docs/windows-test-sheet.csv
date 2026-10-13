@@ -1,0 +1,2 @@
+date,workstation,windows_edition,windows_version,windows_build,autopsy_version,autopsy_java,administrator_account,antivirus_edr,case_disk,data_source_type,data_source_name,data_source_size,test,modules_enabled,minutes,script_result,criteria_failed,errors_seen,compared_with_A,classification,notes
+2026-10-13,FOR03,Windows 11 Pro,23H2,22631.4317,4.23.1,(from Help > About),no,Defender,local C:,E01 image,example.E01,40 GB,A,Windows Compromise Triage only,,PASSED,,,,,example row: replace it

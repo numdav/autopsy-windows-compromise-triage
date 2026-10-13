@@ -159,9 +159,19 @@ class _Chunk(object):
         b = self.b
         t = ord(b[p])
         con_attributi = t & 0x40
-        pos_nome = leggi('<I', b, p + 7)[0]
+        # Di solito l'apertura di un elemento ha 2 byte ("dependency id")
+        # prima della dimensione. Negli eventi scritti senza modello e nei
+        # frammenti annidati quei 2 byte mancano: allora la dimensione letta
+        # due byte piu' avanti comprende la posizione del nome e supera i
+        # 64 KB del blocco, cosa impossibile per una dimensione vera.
+        if leggi('<I', b, p + 3)[0] < DIM_CHUNK:
+            pos_nome = leggi('<I', b, p + 7)[0]
+            q = p + 11
+        else:
+            pos_nome = leggi('<I', b, p + 5)[0]
+            q = p + 9
         nome, lung = self._nome(pos_nome, p)
-        q = p + 11 + lung
+        q += lung
         if con_attributi:
             q += 4
         attributi = []
@@ -402,8 +412,28 @@ class _Chunk(object):
                 return None
         return m.id_fisso
 
+    def in_linea(self, p, fine):
+        """Un evento scritto senza modello: l'XML binario e' tutto nel
+        record, con i valori al loro posto. Restituisce gli elementi risolti."""
+        b = self.b
+        nodi = []
+        while p < fine:
+            base = ord(b[p]) & 0x0F
+            if base == 0x00:
+                break
+            if base == 0x0F:
+                p += 4
+            elif base == 0x01:
+                nodo, p = self._elemento(p)
+                nodi.append(nodo)
+            else:
+                raise ErroreEvtx(tr(u'token %02x non gestito') % ord(b[p]))
+        return self._risolvi_nodi(nodi, None)
+
     def evento(self, istanza):
-        elementi = self._risolvi_nodi(istanza[0].nodi, istanza)
+        return self.evento_da_elementi(self._risolvi_nodi(istanza[0].nodi, istanza))
+
+    def evento_da_elementi(self, elementi):
         ev = {'EventID': None, 'Ora': 0.0, 'Record': None, 'Provider': u'', 'Canale': u'',
               'Computer': u'', 'Livello': None, 'SidUtente': u'', 'Dati': {}, 'Lista': []}
         for radice in elementi:
@@ -580,6 +610,7 @@ class FileEvtx(object):
         self.sorgente = sorgente
         self.errori = 0         # record trovati ma non decodificati
         self.letti = 0          # eventi restituiti
+        self.senza_modello = 0  # record con l'XML binario tutto nel record (senza modello)
         self.visti = 0          # record percorsi (anche quelli che non interessavano)
         self.persi = 0          # record dichiarati dai blocchi ma non trovati: blocco rovinato
         self.blocchi_non_letti = 0      # blocchi da 64 KB la cui lettura e' fallita
@@ -755,28 +786,43 @@ class FileEvtx(object):
                         continue
                     percorsi += 1
                     self._scritto(numero, filetime_a_epoch(scritto))
+                    ev = None
                     try:
                         q = p + 24
                         if ord(dati[q]) & 0x0F == 0x0F:
                             q += 4
-                        if ord(dati[q]) == 0x0C:
+                        t = ord(dati[q])
+                        if t == 0x0C:
                             istanza, _ = c._istanza(q)
                             ident = c.id_evento(istanza)
                             if (id_voluti is None or ident in id_voluti) and \
                                     (filtro is None or filtro(ident, dati, p, dim)):
                                 ev = c.evento(istanza)
-                                if ev['EventID'] is None:
-                                    ev['EventID'] = ident
-                                if not ev['Ora']:
-                                    ev['Ora'] = filetime_a_epoch(scritto)
-                                if ev['Record'] is None:
-                                    ev['Record'] = int(numero)
-                                self.letti += 1
-                                yield ev
+                        elif t & 0x0F == 0x01:
+                            # evento scritto senza modello (succede, per esempio, nei
+                            # registri inoltrati o esportati): l'EventID si conosce
+                            # solo dopo averlo decodificato
+                            ev = c.evento_da_elementi(c.in_linea(q, p + dim - 4))
+                            self.senza_modello += 1
+                            ident = ev['EventID']
+                            if not ((id_voluti is None or ident in id_voluti) and
+                                    (filtro is None or filtro(ident, dati, p, dim))):
+                                ev = None
                         else:
                             self.errori += 1
+                        if ev is not None:
+                            if ev['EventID'] is None:
+                                ev['EventID'] = ident
+                            if not ev['Ora']:
+                                ev['Ora'] = filetime_a_epoch(scritto)
+                            if ev['Record'] is None:
+                                ev['Record'] = int(numero)
                     except ERRORI:
                         self.errori += 1
+                        ev = None
+                    if ev is not None:
+                        self.letti += 1
+                        yield ev
                     p += dim
                 self.visti += percorsi
                 if attesi > percorsi:

@@ -121,10 +121,20 @@ def testo_orario(epoch):
 
 
 def orario_da_testo(testo):
-    """'AAAA-MM-GG HH:MM:SS' oppure 'AAAA-MM-GGTHH:MM:SS' -> epoch (0 se non valido)."""
+    """'AAAA-MM-GG HH:MM:SS[.frazione]' oppure con la T -> epoch (0 se non valido)."""
     try:
-        t = testo.strip().replace('T', ' ')[:19]
-        return float(calendar.timegm(time.strptime(t, '%Y-%m-%d %H:%M:%S')))
+        testo = testo.strip()
+        t = testo.replace('T', ' ')[:19]
+        secondi = float(calendar.timegm(time.strptime(t, '%Y-%m-%d %H:%M:%S')))
+        if testo[19:20] == '.':
+            cifre = ''
+            for c in testo[20:]:
+                if not c.isdigit():
+                    break
+                cifre += c
+            if cifre:
+                secondi += float('0.' + cifre[:7])
+        return secondi
     except ERRORI:
         return 0.0
 

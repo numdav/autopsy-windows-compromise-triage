@@ -5,9 +5,10 @@ Triage compromissione Windows - modulo di ingest per Autopsy (nell'elenco
 dei moduli compare come "Windows Compromise Triage").
 
 Esegue sull'origine dati i controlli della checklist "Questa macchina
-Windows e' compromessa?" e dice in pochi minuti se merita un'analisi
-forense completa. Produce:
-  - un verdetto (Compromissione probabile / Da verificare / Nessun indizio);
+Windows e' compromessa?" e dice in pochi minuti dove guardare prima. Produce:
+  - un verdetto euristico di triage (Indicatori di compromissione / Da
+    verificare, priorita' alta / Da verificare / Nessun indicatore trovato):
+    non e' una probabilita' ne' una prova;
   - i segnali, come risultati di analisi nell'albero di Autopsy
     (Analysis Results > Triage compromissione: segnali);
   - un report HTML e un CSV nella cartella Reports del caso.
@@ -269,9 +270,9 @@ class TriageCompromissioneFactory(IngestModuleFactoryAdapter):
     def getModuleDescription(self):
         # nella finestra dei moduli Autopsy mostra solo i primi 60 caratteri
         # circa (il resto compare fermando il mouse sul testo)
-        return _ui(u'Triage rapido: dice se una macchina Windows \u00e8 compromessa e merita un\'analisi forense '
-                   u'completa. Cerca i segni di compromissione nei registri eventi, nel registro di sistema, nel '
-                   u'Prefetch e negli altri artefatti; produce un verdetto, i segnali e un report HTML.')
+        return _ui(u'Triage rapido: indica quali macchine Windows esaminare per prime. Cerca indicatori di '
+                   u'compromissione nei registri eventi, nel registro di sistema, nel Prefetch, negli altri artefatti e '
+                   u'nella RAM analizzata con Volatility; produce un verdetto euristico, i segnali e un report HTML.')
 
     def getModuleVersionNumber(self):
         return tc_controlli.VERSIONE
@@ -292,6 +293,26 @@ class TriageCompromissioneFactory(IngestModuleFactoryAdapter):
         if not isinstance(settings, GenericIngestModuleJobSettings):
             raise IllegalArgumentException(_ui(u'Le impostazioni devono essere di tipo GenericIngestModuleJobSettings'))
         return TriageCompromissionePanel(settings)
+
+
+def _raccolte_ram():
+    """Le cartelle di collect_memory.py nel caso aperto: (identificativo del
+    manifesto, testo da mostrare). Vuoto se non c'e' un caso."""
+    trovate = []
+    try:
+        sk = Case.getCurrentCase().getSleuthkitCase()
+        nomi = {}
+        for d in sk.getDataSources():
+            nomi[d.getId()] = d.getName()
+        for f in sk.findAllFilesWhere(u"LOWER(name) = '%s' AND dir_flags <> 2" % tc_memoria.NOME_MANIFESTO):
+            if f.isDir() or f.getSize() <= 0:
+                continue
+            origine = nomi.get(f.getDataSourceObjectId(), u'?')
+            cartella = (f.getParentPath() or u'/').rstrip(u'/').split(u'/')[-1] or u'/'
+            trovate.append((f.getId(), (u'%s: %s' % (origine, cartella))[:60]))
+    except ERRORI:
+        pass
+    return sorted(trovate, key=lambda x: x[1])[:100]
 
 
 class TriageCompromissionePanel(IngestModuleIngestJobSettingsPanel):
@@ -348,6 +369,30 @@ class TriageCompromissionePanel(IngestModuleIngestJobSettingsPanel):
         self._aggiungi(riga)
         self._nota(_ui(u'Vale per il messaggio, l\'albero e il report.'))
         self.add(Box.createRigidArea(Dimension(0, 12)))
+        self._aggiungi(JLabel(_ui(u'RAM (risultati di Volatility):')))
+        self.campo_ram = JComboBox()
+        self.valori_ram = [u'auto', u'nessuna']
+        self.campo_ram.addItem(_ui(u'Automatica: stessa origine o stesso host'))
+        self.campo_ram.addItem(_ui(u'Nessuna'))
+        for identificativo, testo in _raccolte_ram():
+            self.valori_ram.append(u'id:%d' % identificativo)
+            self.campo_ram.addItem(testo)
+        attuale = u'auto'
+        try:
+            attuale = impostazioni.getSetting('ram') or u'auto'
+        except ERRORI:
+            pass
+        if attuale not in self.valori_ram:
+            # la RAM scelta in un altro caso: qui non c'e', lo dira' il report
+            self.valori_ram.append(attuale)
+            self.campo_ram.addItem(_ui(u'Scelta prima, non trovata in questo caso'))
+        self.campo_ram.setSelectedIndex(self.valori_ram.index(attuale))
+        self.campo_ram.setPreferredSize(Dimension(280, 26))
+        self.campo_ram.setMaximumSize(Dimension(280, 26))
+        self._aggiungi(self.campo_ram)
+        self._nota(_ui(u'Quale RAM va con questa macchina lo dici tu:'))
+        self._nota(_ui(u'il plugin controlla la scelta e avvisa.'))
+        self.add(Box.createRigidArea(Dimension(0, 12)))
         self._nota(_ui(u'Legge soltanto: non modifica l\'origine dati.'))
         self._nota(_ui(u'Il report va nella cartella Reports del caso.'))
 
@@ -370,6 +415,12 @@ class TriageCompromissionePanel(IngestModuleIngestJobSettingsPanel):
             indice = self.campo_lingua.getSelectedIndex()
             if 0 <= indice < len(tc_lingua.LINGUE):
                 self.impostazioni_locali.setSetting('lingua', str(tc_lingua.LINGUE[indice]))
+        except ERRORI:
+            pass
+        try:
+            indice = self.campo_ram.getSelectedIndex()
+            if 0 <= indice < len(self.valori_ram):
+                self.impostazioni_locali.setSetting('ram', str(self.valori_ram[indice]))
         except ERRORI:
             pass
         return self.impostazioni_locali
@@ -463,7 +514,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         origine = OrigineAutopsy(dataSource, caso)
         progressBar.progress(tr(u'Cerco le installazioni di Windows'))
         radici, scartate = tc_origine.trova_radici(origine)
-        memorie = self._memorie(dataSource, caso, origine)
+        memorie, problemi_ram = self._memorie(dataSource, caso, origine)
         per_radice = tc_controlli.NUMERO_PASSI + 1      # i controlli, piu' report e pubblicazione
         passi_totali = per_radice * len(radici)
         progressBar.switchToDeterminate(passi_totali)
@@ -493,6 +544,12 @@ class TriageCompromissioneModule(DataSourceIngestModule):
             try:
                 t = tc_controlli.Triage(radice, self._opzioni(), avanza, self.context.dataSourceIngestIsCancelled, registra)
                 t.memorie = memorie
+                t.contesto['installazioni_origine'] = len(radici)
+                for genere, testo in problemi_ram:
+                    if genere == 'avviso':
+                        t.avviso(testo)
+                    else:
+                        t.nota(testo)
                 t.esegui()
             except ERRORI:
                 esito = IngestModule.ProcessResult.ERROR
@@ -545,19 +602,66 @@ class TriageCompromissioneModule(DataSourceIngestModule):
 
     # ---- utilita' -----------------------------------------------------------
 
+    def _scelta_ram(self):
+        """L'impostazione "RAM": 'auto', 'nessuna' oppure 'id:<manifesto>'."""
+        try:
+            valore = (self.impostazioni.getSetting('ram') or u'auto') if self.impostazioni is not None else u'auto'
+        except ERRORI:
+            valore = u'auto'
+        return valore if (valore in (u'auto', u'nessuna') or valore.startswith(u'id:')) else u'auto'
+
     def _memorie(self, dataSource, caso, origine):
-        """I risultati di Volatility (collect_memory.py) che il triage puo'
-        usare: quelli che stanno in questa origine dati e quelli nelle altre
-        origini dati del caso. Questi ultimi il triage li usa solo se il nome
-        del computer coincide (vedi tc_memoria.analizza)."""
+        """Le RAM (cartelle di collect_memory.py) che l'analista ha indicato per
+        questa origine dati: con l'impostazione "Automatica" quelle nella stessa
+        origine e quelle delle origini dello stesso host di Autopsy; altrimenti
+        quella scelta. Le RAM delle origini di altri host si leggono solo per
+        dire, se sono dello stesso computer, che non sono state usate.
+        Restituisce (memorie, problemi): i problemi vanno tra gli avvisi."""
         memorie = []
+        problemi = []
+        scelta = self._scelta_ram()
+        if scelta == u'nessuna':
+            try:
+                if tc_memoria.trova(origine):
+                    problemi.append(('nota', tr(u'Nell\'origine dati ci sono risultati di Volatility, ma nelle impostazioni '
+                                                u'dell\'ingest la RAM \u00e8 esclusa: i controlli sui dati volatili non sono '
+                                                u'stati fatti.')))
+            except ERRORI:
+                pass
+            return memorie, problemi
+        sk = caso.getSleuthkitCase()
+        if scelta.startswith(u'id:'):
+            f = None
+            try:
+                f = sk.getAbstractFileById(long(scelta[3:]))
+            except ERRORI:
+                f = None
+            if f is None or f.getName().lower() != tc_memoria.NOME_MANIFESTO:
+                problemi.append(('avviso', tr(u'La RAM scelta nelle impostazioni dell\'ingest non si trova in questo caso: '
+                                              u'i controlli sui dati volatili non sono stati fatti. Sceglila di nuovo.')))
+                return memorie, problemi
+            try:
+                altra = f.getDataSource()
+                o = origine if altra.getId() == dataSource.getId() else OrigineAutopsy(altra, caso)
+                memorie.append(tc_memoria.Memoria(o, ElementoAutopsy(f), altra.getName(), altra.getId() == dataSource.getId(),
+                                                  tc_memoria.INDICATA))
+            except ERRORI:
+                self.log(Level.WARNING, tr(u'RAM scelta non leggibile: ') + _traccia())
+                problemi.append(('avviso', tr(u'La RAM scelta nelle impostazioni dell\'ingest non si legge: i controlli '
+                                              u'sui dati volatili non sono stati fatti.')))
+            return memorie, problemi
         try:
             for e in tc_memoria.trova(origine):
-                memorie.append(tc_memoria.Memoria(origine, e, self._nome(dataSource), True))
+                memorie.append(tc_memoria.Memoria(origine, e, self._nome(dataSource), True, tc_memoria.STESSA_ORIGINE))
         except ERRORI:
             self.log(Level.WARNING, tr(u'Ricerca dei risultati della RAM non riuscita: ') + _traccia())
+        mio_host = None
         try:
-            altre = list(caso.getSleuthkitCase().getDataSources())
+            mio_host = dataSource.getHost().getHostId()
+        except ERRORI:
+            mio_host = None         # Autopsy senza host (prima della 4.19)
+        try:
+            altre = list(sk.getDataSources())
         except ERRORI:
             altre = []
             self.log(Level.WARNING, tr(u'Elenco delle origini dati del caso non riuscito: ') + _traccia())
@@ -565,12 +669,18 @@ class TriageCompromissioneModule(DataSourceIngestModule):
             try:
                 if altra.getId() == dataSource.getId():
                     continue
+                stesso = False
+                try:
+                    stesso = mio_host is not None and altra.getHost().getHostId() == mio_host
+                except ERRORI:
+                    stesso = False
                 o = OrigineAutopsy(altra, caso)
                 for e in tc_memoria.trova(o):
-                    memorie.append(tc_memoria.Memoria(o, e, altra.getName(), False))
+                    memorie.append(tc_memoria.Memoria(o, e, altra.getName(), False,
+                                                      tc_memoria.STESSO_HOST if stesso else tc_memoria.ALTRO_HOST))
             except ERRORI:
                 self.log(Level.WARNING, tr(u'Ricerca dei risultati della RAM non riuscita: ') + _traccia())
-        return memorie
+        return memorie, problemi
 
     def _vuoto(self, t):
         """Vero se nell'origine non c'era nulla da analizzare. Se invece
@@ -597,11 +707,16 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         """Il messaggio nella posta di Autopsy. non_scritti: quanti segnali
         non si e' riusciti a scrivere nell'albero (-1: nessun risultato scritto)."""
         R = tc_regole
-        decisivi = [s for s in t.segnali if s.peso == R.DECISIVO]
-        conferme = [s for s in t.segnali if s.peso == R.DA_CONFERMARE]
-        computer = tc_base.pulito(t.contesto.get('computer')) or self._nome(dataSource)
-        righe = [u'<b>%s</b><br>%s' % (tc_report._e(tr(t.verdetto)), tc_report._e(t.motivo_verdetto)),
-                 tr(u'Segnali decisivi: %d - da confermare: %d') % (len(decisivi), len(conferme))]
+        contano = [s for s in t.segnali if s.conta and not s.discordante and not s.limitato]
+        decisivi = [s for s in contano if s.peso == R.DECISIVO]
+        conferme = [s for s in contano if s.peso == R.DA_CONFERMARE]
+        computer = tc_base.pulito(t.contesto.get('computer') or t.contesto.get('computer_ram')) or self._nome(dataSource)
+        c = t.conteggi or {}
+        righe = [u'<i>%s</i>' % tc_report._e(tr(tc_controlli.AVVERTENZA)),
+                 u'<b>%s</b><br>%s' % (tc_report._e(tr(t.verdetto)), tc_report._e(t.motivo_verdetto)),
+                 tr(u'Fatti decisivi: %d (segnali: %d) - fatti da confermare: %d (segnali: %d)')
+                 % (c.get('fatti_decisivi', 0), c.get('segnali_decisivi', 0), c.get('fatti_da_confermare', 0),
+                    c.get('segnali_da_confermare', 0))]
         principali = sorted(decisivi, key=lambda s: s.ora)[:8]
         if not principali:
             principali = sorted(conferme, key=lambda s: s.ora)[:8]
@@ -632,7 +747,7 @@ class TriageCompromissioneModule(DataSourceIngestModule):
             righe.append(tr(u'<b>I risultati non sono stati scritti nell\'albero</b>: il report \u00e8 completo, il '
                          u'motivo \u00e8 nel log di Autopsy (Help &gt; Open Log Folder). I risultati nell\'albero vengono '
                          u'scritti da Autopsy 4.19 in poi.'))
-        tipo = IngestMessage.MessageType.WARNING if t.verdetto != tc_controlli.V_NESSUN_INDIZIO else IngestMessage.MessageType.INFO
+        tipo = IngestMessage.MessageType.WARNING if t.verdetto != tc_controlli.V_NESSUN_INDICATORE else IngestMessage.MessageType.INFO
         self._messaggio(tipo, tr(u'Triage di %s: %s') % (computer, tr(t.verdetto)), u'<br>'.join(righe))
         self.log(Level.INFO, tr(u'Triage di %s: %s (%.1f s, %d interrogazioni al database)')
                  % (computer, t.riassunto(), t.durata, interrogazioni))
@@ -716,6 +831,8 @@ class TriageCompromissioneModule(DataSourceIngestModule):
         a_motivo = lavagna.getOrAddAttributeType(u'TC_MOTIVO', STRINGA, tr(u'Motivo'))
         a_computer = lavagna.getOrAddAttributeType(u'TC_COMPUTER', STRINGA, u'Computer')
         a_report = lavagna.getOrAddAttributeType(u'TC_REPORT', STRINGA, u'Report')
+        a_origine = lavagna.getOrAddAttributeType(u'TC_ORIGINE', STRINGA, tr(u'Origine'))
+        a_fatto = lavagna.getOrAddAttributeType(u'TC_FATTO', STRINGA, tr(u'Fatto n.'))
         a_quando = BlackboardAttribute.Type.TSK_DATETIME
 
         def testo_di(risultato, attributo):
@@ -771,30 +888,47 @@ class TriageCompromissioneModule(DataSourceIngestModule):
 
         try:
             # verdetto, sull'origine dati
-            decisivi = len([s for s in t.segnali if s.peso == R.DECISIVO])
-            conferme = len([s for s in t.segnali if s.peso == R.DA_CONFERMARE])
-            computer = tc_base.pulito(t.contesto.get('computer'))
+            c = t.conteggi or {}
+            computer = tc_base.pulito(t.contesto.get('computer') or t.contesto.get('computer_ram'))
             verdetto = tr(t.verdetto)
             if (verdetto, t.motivo_verdetto, computer) not in self._verdetti_tenuti:
-                # "nessun indizio" non vuol dire "macchina pulita": il punteggio resta
-                # sconosciuto. (SCORE_NONE significherebbe "esaminato e buono" e, sugli
-                # stessi file, coprirebbe i punteggi "probabilmente notevole".)
-                punteggio = {tc_controlli.V_COMPROMESSA: Score.SCORE_NOTABLE,
-                             tc_controlli.V_DA_VERIFICARE: Score.SCORE_LIKELY_NOTABLE}.get(t.verdetto, Score.SCORE_UNKNOWN)
+                # Il punteggio segue il verdetto: "indicatori" e' notevole, "da verificare" con
+                # segnali e' probabilmente notevole. "Da verificare" solo per la copertura e
+                # "nessun indicatore trovato" restano sconosciuti: non dicono nulla della
+                # macchina. (SCORE_NONE significherebbe "esaminato e buono" e, sugli stessi
+                # file, coprirebbe i punteggi "probabilmente notevole".)
+                if t.verdetto == tc_controlli.V_INDICATORI:
+                    punteggio = Score.SCORE_NOTABLE
+                elif t.verdetto == tc_controlli.V_PRIORITA or (t.verdetto == tc_controlli.V_DA_VERIFICARE and
+                                                               [s for s in t.segnali if s.conta and s.peso >= R.DA_CONFERMARE]):
+                    punteggio = Score.SCORE_LIKELY_NOTABLE
+                else:
+                    punteggio = Score.SCORE_UNKNOWN
                 attributi = ArrayList()
                 attributi.add(BlackboardAttribute(a_verdetto, NOME_MODULO, verdetto))
                 attributi.add(BlackboardAttribute(a_motivo, NOME_MODULO, t.motivo_verdetto))
                 attributi.add(BlackboardAttribute(a_computer, NOME_MODULO, computer))
                 attributi.add(BlackboardAttribute(a_segnale, NOME_MODULO,
-                                                  tr(u'Segnali decisivi: %d, da confermare: %d') % (decisivi, conferme)))
+                                                  tr(u'Fatti decisivi: %d (segnali: %d) - fatti da confermare: %d (segnali: %d)')
+                                                  % (c.get('fatti_decisivi', 0), c.get('segnali_decisivi', 0),
+                                                     c.get('fatti_da_confermare', 0), c.get('segnali_da_confermare', 0))))
                 if percorso_report:
                     attributi.add(BlackboardAttribute(a_report, NOME_MODULO, percorso_report))
                 risultato = dataSource.newAnalysisResult(tipo_verdetto, punteggio, verdetto, tc_controlli.VERSIONE,
-                                                         t.motivo_verdetto, attributi).getAnalysisResult()
+                                                         t.motivo_verdetto + u' ' + tr(tc_controlli.AVVERTENZA),
+                                                         attributi).getAnalysisResult()
                 nuovi.append(risultato)
             # segnali, ciascuno sul file da cui viene
             punteggi = {R.DECISIVO: Score.SCORE_NOTABLE, R.DA_CONFERMARE: Score.SCORE_LIKELY_NOTABLE,
                         R.INFORMATIVO: Score.SCORE_UNKNOWN}
+            # un segnale che non conta (RAM contraddetta) non da' punteggio; uno incerto
+            # (discordanza, RAM anomala) al massimo "probabilmente notevole"
+            def punteggio_di(s):
+                if not s.conta:
+                    return Score.SCORE_UNKNOWN
+                if (s.discordante or s.limitato) and s.peso >= R.DA_CONFERMARE:
+                    return Score.SCORE_LIKELY_NOTABLE
+                return punteggi[s.peso]
             for s in t.segnali_ordinati():
                 contenuto = dataSource
                 if s.elemento is not None and getattr(s.elemento, 'rif', None) is not None:
@@ -816,7 +950,10 @@ class TriageCompromissioneModule(DataSourceIngestModule):
                     attributi.add(BlackboardAttribute(a_segnale, NOME_MODULO, s.descrizione[:1000]))
                     if s.dettagli:
                         attributi.add(BlackboardAttribute(a_dettagli, NOME_MODULO, s.dettagli[:4000]))
-                    risultato = contenuto.newAnalysisResult(tipo_segnale, punteggi[s.peso], tr(R.NOME_PESO[s.peso]),
+                    attributi.add(BlackboardAttribute(a_origine, NOME_MODULO, tc_report.origine(s)))
+                    if s.fenomeno:
+                        attributi.add(BlackboardAttribute(a_fatto, NOME_MODULO, unicode(s.fenomeno)))
+                    risultato = contenuto.newAnalysisResult(tipo_segnale, punteggio_di(s), tr(R.NOME_PESO[s.peso]),
                                                             tr(u'Controllo %d') % s.controllo, s.descrizione[:1000],
                                                             attributi).getAnalysisResult()
                 except ERRORI:

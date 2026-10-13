@@ -62,6 +62,16 @@ def tr_in(lingua, testo):
     return testo
 
 
+def quanti(n, uno, molti):
+    """Il testo per n cose: uno se n e' 1, altrimenti molti (entrambi con %d)."""
+    return (tr(uno) if n == 1 else tr(molti)) % n
+
+
+def volte(n):
+    """'1 volta', '3 volte' nella lingua scelta."""
+    return tr(u'1 volta') if n == 1 else tr(u'%d volte') % n
+
+
 def N_(testo):
     """Segna un testo da tradurre senza tradurlo adesso."""
     return testo

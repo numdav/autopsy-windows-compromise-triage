@@ -20,14 +20,21 @@ import tc_c_eventi
 import tc_c_file
 import tc_memoria
 from tc_base import testo_orario, pulito, ERRORI
-from tc_lingua import tr, N_
+from tc_lingua import tr, N_, quanti
 
-VERSIONE = u'1.2'
+VERSIONE = u'1.3'
 NUMERO_PASSI = 24       # i passi di Triage.esegui, per la barra di avanzamento
 
-V_COMPROMESSA = N_(u'COMPROMISSIONE PROBABILE')
+# I verdetti non sono probabilita': dicono quali macchine esaminare per prime.
+V_INDICATORI = N_(u'INDICATORI DI COMPROMISSIONE')
+V_PRIORITA = N_(u'DA VERIFICARE, PRIORIT\u00c0 ALTA')
 V_DA_VERIFICARE = N_(u'DA VERIFICARE')
-V_NESSUN_INDIZIO = N_(u'NESSUN INDIZIO')
+V_NESSUN_INDICATORE = N_(u'NESSUN INDICATORE TROVATO')
+# i nomi della versione 1.2, per chi li usa da fuori
+V_COMPROMESSA = V_INDICATORI
+V_NESSUN_INDIZIO = V_NESSUN_INDICATORE
+AVVERTENZA = N_(u'Verdetto euristico di triage: indica dove guardare prima. Non \u00e8 una probabilit\u00e0 n\u00e9 una '
+                u'prova; la conclusione spetta all\'analisi forense.')
 
 FASI = [
     (1, N_(u'Contesto e dati volatili')),
@@ -133,7 +140,7 @@ class Segnale(object):
     """Un riscontro di un controllo."""
 
     def __init__(self, controllo, peso, famiglia, descrizione, dettagli=u'', ora=0, elemento=None,
-                 extra=False):
+                 extra=False, oggetti=(), ram=None, discordante=False):
         self.controllo = controllo
         self.peso = peso
         self.famiglia = famiglia
@@ -142,9 +149,46 @@ class Segnale(object):
         self.ora = ora or 0
         self.elemento = elemento
         self.extra = extra      # regola che non viene dalle 32 guide
+        self.oggetti = tuple([k for k in oggetti if k])     # gli oggetti di cui parla (vedi tc_regole.chiave_*)
+        self.ram = ram          # None: viene dal disco; altrimenti la RAM (voce di contesto['memorie'])
+        self.discordante = discordante      # nasce da fonti che non concordano (vedi decidi)
+        self.fenomeno = 0       # il fatto a cui appartiene (vedi Triage.fenomeni), numerati da 1
+        self.conta = True       # False: la sua RAM e' contraddetta dal disco, non conta per il verdetto
+        self.limitato = False   # True: viene da una RAM con l'output anomalo, non porta oltre "da verificare"
 
     def titolo(self):
         return tr(TITOLO_CONTROLLO.get(self.controllo, u''))
+
+    def fonte(self):
+        """Dove e' stato visto, in breve: il registro eventi, l'hive, il
+        Prefetch... oppure la RAM con il plugin di Volatility."""
+        nome = u''
+        try:
+            nome = self.elemento.nome if self.elemento is not None else u''
+        except ERRORI:
+            nome = u''
+        if self.ram is not None:
+            plugin = nome.lower()
+            if plugin.startswith(u'windows.') and plugin.endswith(u'.json'):
+                return u'RAM (%s)' % plugin[8:-5]
+            return u'RAM'
+        return fonte_da_nome(nome)
+
+
+def fonte_da_nome(nome):
+    basso = (nome or u'').lower()
+    if not basso:
+        return u''
+    if basso.endswith(u'.evtx'):
+        for interno, leggibile in tc_c_eventi.tc_eventi.REGISTRI_PRINCIPALI:
+            if interno == basso:
+                return leggibile
+        return nome[:-5]
+    if basso.endswith(u'.pf'):
+        return u'Prefetch'
+    if basso in (u'system', u'software', u'sam', u'security', u'amcache.hve', u'ntuser.dat', u'usrclass.dat'):
+        return {u'amcache.hve': u'AmCache', u'ntuser.dat': u'NTUSER.DAT', u'usrclass.dat': u'UsrClass.dat'}.get(basso, nome.upper())
+    return nome
 
 
 class Tabella(object):
@@ -189,11 +233,17 @@ class Triage(object):
         self.note = []              # osservazioni che non riguardano la copertura
         self._senza_date = None     # vero se l'origine non riporta le date dei file
         self._date_copia = None     # vero se le date di creazione dei file sono quelle della copia
-        self.verdetto = V_NESSUN_INDIZIO
+        self.verdetto = V_NESSUN_INDICATORE
         self.motivo_verdetto = u''
         self.durata = 0.0
         self._per_controllo = {}    # controllo -> segnali emessi (anche quelli non conservati)
         self._per_gruppo = {}       # (controllo, peso, famiglia) -> segnali emessi
+        self.parziali = {}          # controllo -> [(fonte mancata o incompleta, motivo, fallita)]
+        self.fallite = set()        # controlli non verificabili perche' una fonte presente non e' riuscita
+        self.ram_corrente = None    # durante l'analisi di una RAM, la sua voce: i segnali emessi la portano
+        self.fenomeni_elenco = []   # i fatti (gruppi di segnali sullo stesso oggetto), calcolati da decidi()
+        self.conteggi = {}          # i numeri del verdetto (vedi decidi)
+        self.acquisizioni = []      # servizi col nome di un driver di acquisizione (vedi tc_c_registro.rivedi_acquisizioni)
 
     # ---- servizi per i controlli ----------------------------------------
 
@@ -249,15 +299,19 @@ class Triage(object):
                 pass
 
     def segnala(self, controllo, peso, famiglia, descrizione, dettagli=u'', ora=0, elemento=None,
-                extra=False):
+                extra=False, oggetti=(), discordante=False):
         """Aggiunge un segnale. Ogni combinazione di controllo, peso e
         famiglia ha il suo tetto: i segnali in piu' vengono contati ma non
         conservati. Il tetto e' per combinazione e non per controllo, cosi'
         una valanga di voci informative non puo' far sparire un segnale piu'
         pesante e il primo segnale di ogni famiglia resta sempre (e' quello
-        che conta per il verdetto)."""
+        che conta per il verdetto).
+        'oggetti': le chiavi (tc_regole.chiave_file, chiave_comando...) degli
+        oggetti di cui parla; i segnali con un oggetto in comune sono lo stesso
+        fatto. 'discordante': nasce dal disaccordo fra due fonti (un processo
+        che vede solo la scansione della memoria) e non da un fatto osservato."""
         self._per_controllo[controllo] = self._per_controllo.get(controllo, 0) + 1
-        gruppo = (controllo, peso, famiglia)
+        gruppo = (controllo, peso, famiglia, self.ram_corrente is not None)
         n = self._per_gruppo.get(gruppo, 0) + 1
         self._per_gruppo[gruppo] = n
         tetto = self.opzioni.massimo_per_controllo
@@ -265,7 +319,11 @@ class Triage(object):
             tetto *= 4
         if n > tetto:
             return None
-        s = Segnale(controllo, peso, famiglia, pulito(descrizione), pulito(dettagli), ora, elemento, extra)
+        s = Segnale(controllo, peso, famiglia, pulito(descrizione), pulito(dettagli), ora, elemento, extra,
+                    oggetti, self.ram_corrente, discordante)
+        if self.ram_corrente is not None:
+            s.conta = self.ram_corrente.get('conta', True)
+            s.limitato = self.ram_corrente.get('limitata', False)
         self.segnali.append(s)
         return s
 
@@ -273,11 +331,26 @@ class Triage(object):
         if righe:
             self.tabelle.append(Tabella(controllo, titolo, colonne, righe, nota))
 
-    def esito(self, controllo, stato, nota=u''):
+    def esito(self, controllo, stato, nota=u'', fallita=False):
+        """Lo stato di un controllo: 'fatto', 'assente' (l'artefatto non c'e')
+        o 'non verificabile'. fallita=True: non verificabile perche' una fonte
+        che c'e' non e' riuscita (un plugin di Volatility fermato, un output
+        illeggibile): conta come copertura insufficiente."""
+        if fallita and stato == 'non verificabile':
+            self.fallite.add(controllo)
         vecchio = self.esiti.get(controllo)
         if vecchio is not None and vecchio[0] == 'fatto' and stato != 'fatto':
             return
         self.esiti[controllo] = (stato, nota)
+
+    def parziale(self, controllo, fonte, motivo=u'', fallita=True):
+        """Un controllo fatto solo in parte: una delle sue fonti manca o e'
+        incompleta (fallita=True se c'e' ma non e' riuscita). Nella tabella dei
+        41 controlli diventa "parziale", con la fonte mancata; il verdetto non
+        puo' essere "nessun indicatore trovato"."""
+        voci = self.parziali.setdefault(controllo, [])
+        if (fonte, motivo, fallita) not in voci:
+            voci.append((fonte, motivo, fallita))
 
     def fatto(self, *controlli):
         for c in controlli:
@@ -519,23 +592,26 @@ class Triage(object):
         voce = self.rmm.setdefault(strumento, {'prove': [], 'sessioni': []})
         if len(voce['prove']) < 200:
             voce['prove'].append({'tipo': tipo, 'dettaglio': dettaglio, 'ora': ora or 0, 'elemento': elemento,
-                                  'controllo': controllo, 'genere': genere})
+                                  'controllo': controllo, 'genere': genere, 'ram': self.ram_corrente})
 
     def sessione_rmm(self, strumento, ora, dettaglio, elemento=None, controllo=34, in_entrata=True):
         voce = self.rmm.setdefault(strumento, {'prove': [], 'sessioni': []})
         if len(voce['sessioni']) < 2000:
             voce['sessioni'].append({'ora': ora or 0, 'dettaglio': dettaglio, 'elemento': elemento,
-                                     'controllo': controllo, 'in_entrata': in_entrata})
+                                     'controllo': controllo, 'in_entrata': in_entrata, 'ram': self.ram_corrente})
 
     def esecuzione(self, percorso, ora, fonte, utente=u'', conteggio=0, elemento=None, eseguito=True,
-                   orari=None, nota=u''):
+                   orari=None, nota=u'', versione=()):
         """Registra una prova che un programma e' stato eseguito (o, con
-        eseguito=False, che il file esisteva)."""
+        eseguito=False, che il file esisteva). versione: i nomi che il file
+        dichiara nelle sue informazioni di versione (nome originale, prodotto),
+        se la fonte li riporta (AmCache)."""
         if len(self.esecuzioni) >= 60000:
             return
         self.esecuzioni.append({'percorso': percorso, 'ora': ora or 0, 'fonte': fonte, 'utente': utente,
                                 'conteggio': conteggio, 'elemento': elemento, 'eseguito': eseguito,
-                                'orari': orari or ([ora] if ora else []), 'nota': nota})
+                                'orari': orari or ([ora] if ora else []), 'nota': nota,
+                                'versione': [x for x in versione if x]})
         self.vede(ora)
 
     # ---- esecuzione -----------------------------------------------------
@@ -598,6 +674,12 @@ class Triage(object):
                       u'file tc_regole.py.') % nome[:60])
         for nome, funzione in passi:
             self._passo(nome, funzione)
+        if not self.annullato():
+            try:
+                tc_c_registro.rivedi_acquisizioni(self)
+            except ERRORI:
+                self.errori.append(tr(u'Driver degli strumenti di acquisizione: %s')
+                                   % traceback.format_exc().decode('utf-8', 'replace')[-1200:])
         if self.errori:
             # un controllo interrotto da un errore e' un controllo non fatto:
             # non deve poter passare per "nessun indizio"
@@ -637,58 +719,174 @@ class Triage(object):
         compromissione."""
         return list(self.avvisi)
 
+    def fenomeni(self):
+        """Riunisce nei fatti ("fenomeni") i segnali che parlano dello stesso
+        oggetto: processo, comando, file, attivita' pianificata, servizio,
+        account, indirizzo, registro cancellato, blocco di script. Fonti
+        diverse che vedono lo stesso oggetto confermano che il fatto e'
+        avvenuto, non che sia piu' grave. Restituisce i fenomeni (liste di
+        segnali), i piu' pesanti prima; ogni segnale riceve il numero del suo."""
+        segnali = self.segnali
+        genitore = range(len(segnali))
+
+        def radice(i):
+            while genitore[i] != i:
+                genitore[i] = genitore[genitore[i]]
+                i = genitore[i]
+            return i
+        primo = {}
+        for i, s in enumerate(segnali):
+            for k in s.oggetti:
+                j = primo.get(k)
+                if j is None:
+                    primo[k] = i
+                else:
+                    a, b = radice(i), radice(j)
+                    if a != b:
+                        genitore[a] = b
+        gruppi = {}
+        for i, s in enumerate(segnali):
+            gruppi.setdefault(radice(i), []).append(s)
+        elenco = sorted(gruppi.values(), key=lambda g: (-max([s.peso for s in g]), min([s.ora or 1e18 for s in g])))
+        for n, g in enumerate(elenco):
+            g.sort(key=lambda s: (-s.peso, s.ora or 0))
+            for s in g:
+                s.fenomeno = n + 1
+        self.fenomeni_elenco = elenco
+        return elenco
+
+    def _origine(self, s):
+        if s.ram is None:
+            return tr(u'disco')
+        return u'RAM %s' % (s.ram.get('immagine') or u'')
+
     def decidi(self):
-        decisivi = [s for s in self.segnali if s.peso == R.DECISIVO]
-        conferme = [s for s in self.segnali if s.peso == R.DA_CONFERMARE]
+        """Il verdetto. Contano i fatti, non i segnali:
+        - un fatto decisivo da fonti pulite: "indicatori di compromissione";
+        - segnali da confermare in due famiglie, da fatti diversi: "da
+          verificare, priorita' alta";
+        - segnali da confermare (una famiglia, o un fatto solo), segnali da una
+          RAM con l'output anomalo o da fonti discordanti: "da verificare";
+        - nessun segnale ma copertura insufficiente: "da verificare";
+        - altrimenti "nessun indicatore trovato".
+        I segnali di una RAM che il disco contraddice restano nel report ma non
+        contano."""
+        for s in self.segnali:
+            if s.ram is not None:
+                s.conta = s.ram.get('conta', True)
+                s.limitato = s.ram.get('limitata', False)
+        elenco = self.fenomeni()
+        incompleti = sorted(set(list(self.fallite) + [c for c, v in self.parziali.items() if [x for x in v if x[2]]]))
+        if incompleti and not self.avvisi:
+            # rete di sicurezza: chi segna un controllo incompleto da' anche un avviso suo
+            self.avviso(tr(u'Controlli parziali o non verificabili perch\u00e9 una fonte presente non \u00e8 riuscita: %s.')
+                        % u', '.join([unicode(c) for c in incompleti]))
+        pieni = [s for s in self.segnali if s.conta and not s.limitato and not s.discordante]
+        incerti = [s for s in self.segnali if s.conta and (s.limitato or s.discordante) and s.peso >= R.DA_CONFERMARE]
+        esclusi = [s for s in self.segnali if not s.conta and s.peso >= R.DA_CONFERMARE]
+        decisivi = [s for s in pieni if s.peso == R.DECISIVO]
+        fatti_decisivi = sorted(set([s.fenomeno for s in decisivi]))
+        conferme = [s for s in pieni if s.peso == R.DA_CONFERMARE]
+        per_fatto = {}
+        for s in conferme:
+            per_fatto.setdefault(s.fenomeno, set()).add(s.famiglia)
         famiglie = []
         for s in conferme:
             if s.famiglia not in famiglie:
                 famiglie.append(s.famiglia)
+        coppia = None
+        fatti = sorted(per_fatto)
+        for i in xrange(len(fatti)):
+            for j in xrange(i + 1, len(fatti)):
+                for a in sorted(per_fatto[fatti[i]]):
+                    for b in sorted(per_fatto[fatti[j]]):
+                        if a != b and coppia is None:
+                            coppia = (a, b)
+        fatti_conferma = sorted([f for f in per_fatto if f not in fatti_decisivi])
+        # i numeri per il report e per i messaggi
+        origini = []
+        for s in self.segnali:
+            o = self._origine(s)
+            if o not in [x[0] for x in origini]:
+                origini.append((o, s.ram))
+        self.conteggi = {
+            'fatti_decisivi': len(fatti_decisivi), 'segnali_decisivi': len(decisivi),
+            # i segnali da confermare dei fatti da confermare: quelli di un fatto decisivo stanno con lui
+            'fatti_da_confermare': len(fatti_conferma),
+            'segnali_da_confermare': len([s for s in conferme if s.fenomeno not in fatti_decisivi]),
+            'incerti': len(incerti), 'esclusi': len(esclusi), 'fatti': len(elenco),
+            'per_origine': [(o, len([s for s in self.segnali if self._origine(s) == o and s.peso == R.DECISIVO]),
+                             len([s for s in self.segnali if self._origine(s) == o and s.peso == R.DA_CONFERMARE]),
+                             len([s for s in self.segnali if self._origine(s) == o and s.peso == R.INFORMATIVO]))
+                            for o, _ in origini],
+        }
         if decisivi:
-            self.verdetto = V_COMPROMESSA
-            n = len(decisivi)
+            self.verdetto = V_INDICATORI
+            n = len(fatti_decisivi)
             if n == 1:
-                self.motivo_verdetto = tr(u'1 segnale decisivo: basta uno solo per trattare la macchina come compromessa.')
+                self.motivo_verdetto = tr(u'1 fatto decisivo: un indicatore che di rado ha una spiegazione innocente e '
+                                          u'che da solo giustifica l\'esame della macchina. Non \u00e8 una prova.')
             else:
-                self.motivo_verdetto = (tr(u'%d segnali decisivi: basta uno solo per trattare la macchina come '
-                                        u'compromessa.') % n)
-        elif len(famiglie) >= 2:
-            self.verdetto = V_COMPROMESSA
-            self.motivo_verdetto = (tr(u'Nessun segnale decisivo, ma segnali da confermare in %d famiglie diverse '
-                                    u'(%s): presi insieme puntano nella stessa direzione.')
+                self.motivo_verdetto = (tr(u'%d fatti decisivi: indicatori che di rado hanno una spiegazione innocente e '
+                                           u'che da soli giustificano l\'esame della macchina. Non sono una prova.') % n)
+        elif coppia is not None:
+            self.verdetto = V_PRIORITA
+            self.motivo_verdetto = (tr(u'Nessun fatto decisivo, ma segnali da confermare in %d famiglie (%s) da fatti '
+                                       u'diversi: puntano nella stessa direzione e vanno verificati per primi.')
                                     % (len(famiglie), u', '.join([tr(f) for f in famiglie])))
-        elif len(famiglie) == 1:
+        elif len(famiglie) >= 2:
+            self.verdetto = V_DA_VERIFICARE
+            self.motivo_verdetto = (tr(u'Segnali da confermare in %d famiglie (%s), ma tutti sullo stesso oggetto: '
+                                       u'contano come un fatto solo. Cerca conferme dall\'IT, dall\'utente e dai log '
+                                       u'centralizzati.') % (len(famiglie), u', '.join([tr(f) for f in famiglie])))
+        elif famiglie:
             self.verdetto = V_DA_VERIFICARE
             self.motivo_verdetto = (tr(u'Segnali da confermare in una sola famiglia (%s): da soli non bastano. '
-                                    u'Cerca conferme dall\'IT, dall\'utente e dai log centralizzati.') % tr(famiglie[0]))
+                                       u'Cerca conferme dall\'IT, dall\'utente e dai log centralizzati.') % tr(famiglie[0]))
+        elif incerti:
+            self.verdetto = V_DA_VERIFICARE
+            self.motivo_verdetto = tr(u'Segnali da una RAM con l\'output anomalo o da fonti che non concordano: da '
+                                      u'soli non portano oltre \u00abda verificare\u00bb.')
         elif self.avvisi:
             self.verdetto = V_DA_VERIFICARE
-            self.motivo_verdetto = (tr(u'Nessun segnale, ma la copertura \u00e8 insufficiente: l\'assenza di tracce '
-                                    u'non esclude una compromissione.'))
+            self.motivo_verdetto = tr(u'Nessun indicatore, ma la copertura \u00e8 insufficiente: l\'assenza di '
+                                      u'indicatori non esclude una compromissione.')
         else:
-            self.verdetto = V_NESSUN_INDIZIO
-            self.motivo_verdetto = (tr(u'I controlli eseguiti non hanno trovato segnali. Il triage non sostituisce '
-                                    u'l\'analisi completa se ci sono altri motivi di sospetto.'))
+            self.verdetto = V_NESSUN_INDICATORE
+            self.motivo_verdetto = tr(u'I controlli eseguiti non hanno trovato indicatori. Non vuol dire che il sistema '
+                                      u'sia pulito: il triage non vede tutto (i limiti sono nel README).')
+        if esclusi:
+            self.motivo_verdetto += quanti(len(esclusi), N_(u' %d segnale viene da una RAM che il disco contraddice: resta '
+                                                            u'nel report ma non conta.'),
+                                           N_(u' %d segnali vengono da una RAM che il disco contraddice: restano nel '
+                                              u'report ma non contano.'))
 
     # ---- riepiloghi -------------------------------------------------------
 
     def stato_controllo(self, numero):
         """(etichetta, peso massimo, numero di segnali, nota) per la tabella
-        dei 41 controlli."""
+        dei 41 controlli. Un controllo con una fonte mancata o incompleta e'
+        "parziale" e la nota dice quale."""
         miei = [s for s in self.segnali if s.controllo == numero]
         esito = self.esiti.get(numero)
+        parziale = self.parziali.get(numero) or []
+        nota_p = u''
+        if parziale:
+            nota_p = tr(u'parziale, manca: %s') % u'; '.join([f + ((u' (%s)' % m) if m else u'') for f, m, _ in parziale])
         if miei:
             peso = max([s.peso for s in miei])
             etichetta = {R.DECISIVO: tr(u'Segnale decisivo'), R.DA_CONFERMARE: tr(u'Da confermare'),
                          R.INFORMATIVO: tr(u'Solo contesto')}[peso]
-            return etichetta, peso, self._per_controllo.get(numero, len(miei)), u''
+            return etichetta, peso, self._per_controllo.get(numero, len(miei)), nota_p
         if esito is None:
             return tr(u'Non eseguito'), 0, 0, u''
         if esito[0] == 'fatto':
+            if parziale:
+                return tr(u'Parziale'), -1, 0, u'; '.join([x for x in (esito[1], nota_p) if x])
             return tr(u'Nulla da segnalare'), 0, 0, esito[1]
         if esito[0] == 'assente':
             return tr(u'Artefatto non trovato'), -1, 0, esito[1]
-        return tr(u'Non verificabile'), -1, 0, esito[1]
+        return tr(u'Non verificabile'), -1, 0, u'; '.join([x for x in (esito[1], nota_p) if x])
 
     def segnali_ordinati(self):
         return sorted(self.segnali, key=lambda s: (-s.peso, s.controllo, -(s.ora or 0)))
@@ -701,9 +899,17 @@ class Triage(object):
         return con_ora
 
     def riassunto(self):
-        decisivi = len([s for s in self.segnali if s.peso == R.DECISIVO])
-        conferme = len([s for s in self.segnali if s.peso == R.DA_CONFERMARE])
-        return tr(u'%s - %d decisivi, %d da confermare') % (tr(self.verdetto), decisivi, conferme)
+        return u'%s - %s' % (tr(self.verdetto), testo_conteggi(self.conteggi))
+
+
+def testo_conteggi(c):
+    """'2 fatti decisivi (3 segnali), 1 fatto da confermare (1 segnale)' nella lingua scelta."""
+    c = c or {}
+    return u'%s (%s), %s (%s)' % (
+        quanti(c.get('fatti_decisivi', 0), N_(u'%d fatto decisivo'), N_(u'%d fatti decisivi')),
+        quanti(c.get('segnali_decisivi', 0), N_(u'%d segnale'), N_(u'%d segnali')),
+        quanti(c.get('fatti_da_confermare', 0), N_(u'%d fatto da confermare'), N_(u'%d fatti da confermare')),
+        quanti(c.get('segnali_da_confermare', 0), N_(u'%d segnale'), N_(u'%d segnali')))
 
 
 def orario(epoch):

@@ -9,7 +9,7 @@ command line, the service path, the task action, the event), with names and addr
 ## Before you change the code
 
 - The plugin runs on **Jython 2.7** inside Autopsy: Python 2 syntax, no third-party libraries, nothing newer than
-  what Jython 2.7.2 supports (it is the version shipped with Autopsy 4.19-4.21).
+  what Jython 2.7.4 supports (the version shipped with Autopsy 4.23.1, the one this release supports).
 - Source files are **pure ASCII**. Accented letters and typographic quotes are written as `\uXXXX` escapes.
 - Code, comments and identifiers are in Italian. You can write a comment in English if Italian is a problem; keep
   the existing names.
@@ -87,9 +87,9 @@ test(eventi): cover event 4688 without a command line
 
 The types used here are `feat` (a new check, rule or output), `fix` (a wrong or missed finding, a crash), `docs`,
 `test`, `refactor` and `chore` (tools, checks, repository). A version is released with a commit that changes
-`VERSIONE` in `tc_controlli.py` and adds its entry to the CHANGELOG (`chore(release): 1.3`), then the tag `v1.3`
-and a GitHub release with the zip built by `tools/make_release.py`. Versions 1.0 to 1.2 were imported with one
-commit each.
+`VERSIONE` in `tc_controlli.py` and adds its entry to the CHANGELOG (`chore(release): 1.4`), then the tag `v1.4`
+and a GitHub release with the zip built by `tools/make_release.py`, `collectors/collect_memory.py` and
+`tools/verify_case.py` attached. Versions 1.0 to 1.3 were imported with one commit each.
 
 Before every commit look at the list of changed files: `.gitignore` keeps out the usual evidence formats (memory
 and disk images, Autopsy cases, reports), but nothing from a real case must ever reach the repository.
@@ -97,5 +97,6 @@ and disk images, Autopsy cases, reports), but nothing from a real case must ever
 ## Pull requests
 
 Keep them small and say what you tested and how (Autopsy version, operating system, kind of data source). The
-checks run by GitHub Actions on every pull request are the commands shown above, with the tests run on both
-Jython 2.7.2 and 2.7.4, plus a compilation of the plugin with Jython 2.7.2.
+checks run by GitHub Actions on every pull request are the commands shown above: the engine tests and a
+compilation of the plugin with Jython 2.7.4, the memory collector tests with Python 3.8 and with the latest Python.
+On a published release they also rebuild the zip from the tag and compare it with the one attached.

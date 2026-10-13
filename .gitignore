@@ -52,6 +52,8 @@ Reports/
 *.html
 *.csv
 *.log
+# ...except the sheet of the Windows test procedure, which is part of the documentation
+!docs/windows-test-sheet.csv
 
 # Editors and operating systems
 .idea/

@@ -144,6 +144,10 @@ def _numero(chiave, nome, predefinito=0):
     return predefinito
 
 
+_TIPO_OGGETTO = {15: u'attivita', 16: u'attivita', 27: u'attivita', 28: u'attivita', 17: u'servizio', 18: u'servizio',
+                 29: u'servizio', 19: u'avvio', 20: u'wmi'}
+
+
 def giudica_persistenza(t, controllo, tipo, nome, comando, argomenti=None, ora=0, elemento=None,
                         nota=u'', extra=False, minimo=0, perche=u''):
     """Valuta una voce che fa partire qualcosa da sola (servizio, attivita',
@@ -180,7 +184,8 @@ def giudica_persistenza(t, controllo, tipo, nome, comando, argomenti=None, ora=0
     if nota:
         dettagli += u'\n' + nota
     t.segnala(controllo, peso, famiglia, tr(u'%s \u00ab%s\u00bb: %s') % (tipo, nome, motivo), dettagli, ora,
-              elemento, extra)
+              elemento, extra, oggetti=(R.chiave(_TIPO_OGGETTO.get(controllo, u'voce'), nome),) +
+              R.oggetti_comando(riga, u'', g.decodificato or u''))
     return peso, motivo
 
 
@@ -270,7 +275,7 @@ def _winlogon(t, h, e):
         if shell and shell.lower() not in (u'explorer.exe', u'c:\\windows\\explorer.exe'):
             t.segnala(19, R.DA_CONFERMARE, R.F_PERSISTENZA,
                       tr(u'Winlogon\\Shell non \u00e8 explorer.exe: \u00ab%s\u00bb') % shell[:200], shell,
-                      elemento=e, extra=True)
+                      elemento=e, extra=True, oggetti=(R.chiave(u'avvio', u'winlogon\\shell'),))
         userinit = _testo(k, u'Userinit').strip()
         if userinit:
             parti = [p.strip().strip(u'"').strip() for p in userinit.split(u',')]
@@ -294,7 +299,7 @@ def _winlogon(t, h, e):
                         peso = R.DECISIVO
                 t.segnala(19, peso, R.F_PERSISTENZA,
                           tr(u'Winlogon\\Userinit avvia altro oltre a userinit.exe: \u00ab%s\u00bb') % u', '.join(strane)[:200],
-                          userinit, elemento=e, extra=True)
+                          userinit, elemento=e, extra=True, oggetti=(R.chiave(u'avvio', u'winlogon\\userinit'),))
     nascosti = h.apri(u'Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList')
     if nascosti is not None:
         nomi = [v.nome for v in nascosti.valori() if v.nome and v.valore() == 0]
@@ -305,7 +310,7 @@ def _winlogon(t, h, e):
                       tr(u'Winlogon\\SpecialAccounts\\UserList - ultima scrittura della chiave: %s (UTC)\n'
                       u'L\'account esiste e pu\u00f2 collegarsi, ma non compare tra gli utenti: lo fa chi vuole tenere '
                       u'un accesso senza farsi notare (e qualche prodotto di assistenza remota).') % T(nascosti.orario),
-                      nascosti.orario, e, extra=True)
+                      nascosti.orario, e, extra=True, oggetti=tuple([R.chiave(u'account', n) for n in nomi[:10]]))
     ifeo = h.apri(u'Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options')
     if ifeo is not None:
         for k in ifeo.sottochiavi():
@@ -315,20 +320,21 @@ def _winlogon(t, h, e):
             if k.nome.lower() in _ACCESSIBILITA:
                 t.segnala(19, R.DECISIVO, R.F_PERSISTENZA,
                           tr(u'Debugger impostato su %s: si apre dalla schermata di accesso senza credenziali '
-                          u'(backdoor \u00absticky keys\u00bb)') % k.nome, debugger, k.orario, e, extra=True)
+                          u'(backdoor \u00absticky keys\u00bb)') % k.nome, debugger, k.orario, e, extra=True,
+                          oggetti=(R.chiave(u'avvio', u'ifeo\\' + k.nome), R.chiave_programma(debugger, True)))
             else:
                 g = R.valuta_comando(debugger)
                 if g.livello >= 2:
                     t.segnala(19, R.DA_CONFERMARE, R.F_PERSISTENZA,
                               tr(u'Debugger impostato su %s: %s') % (k.nome, g.motivo()), debugger, k.orario, e,
-                              extra=True)
+                              extra=True, oggetti=(R.chiave(u'avvio', u'ifeo\\' + k.nome), R.chiave_programma(debugger, True)))
     w = h.apri(u'Microsoft\\Windows NT\\CurrentVersion\\Windows')
     if w is not None:
         dll = _testo(w, u'AppInit_DLLs')
         if dll.strip() and w.dato(u'LoadAppInit_DLLs', 0) == 1:
             peso = R.DA_CONFERMARE if R.zona(dll.split(u',')[0].split(u' ')[0]) != u'sistema' else R.INFORMATIVO
             t.segnala(19, peso, R.F_PERSISTENZA, tr(u'AppInit_DLLs carica una DLL in ogni processo: \u00ab%s\u00bb')
-                      % dll[:200], dll, elemento=e, extra=True)
+                      % dll[:200], dll, elemento=e, extra=True, oggetti=(R.chiave(u'avvio', u'appinit_dlls'),))
 
 
 def _installati(t, h, e, chiavi, utente):
@@ -662,9 +668,6 @@ def _un_servizio(t, s, e, righe, quanti):
         if dll and R.zona(dll) in (u'sospetta', u'temporanea', u'utente'):
             peso = max(peso, R.DA_CONFERMARE)
             motivi.append(tr(u'la DLL del servizio sta in una cartella scrivibile dagli utenti: %s') % dll)
-    if peso and peso < R.DECISIVO and R.driver_forense(nome, percorso):
-        peso = R.INFORMATIVO
-        motivi.append(tr(u'driver di uno strumento di acquisizione forense: probabilmente lasciato da chi ha raccolto le prove'))
     strumento = R.trova_rmm(nome + u' ' + mostrato + u' ' + percorso)
     if strumento:
         t.prova_rmm(strumento, tr(u'servizio'), u'%s: %s' % (nome, percorso[:300]), s.orario, e, 32)
@@ -672,10 +675,12 @@ def _un_servizio(t, s, e, righe, quanti):
         motivo = u'; '.join(motivi)
         avvio = {0: tr(u'all\'avvio del sistema (0)'), 1: tr(u'di sistema (1)'), 2: tr(u'automatico (2)'), 3: tr(u'manuale (3)'),
                  4: tr(u'disattivato (4)')}.get(_numero(s, u'Start', -1), tr(u'non indicato'))
-        t.segnala(controllo, peso, famiglia, tr(u'Servizio \u00ab%s\u00bb: %s') % (nome, motivo),
-                  tr(u'%s\nAvvio: %s - Ultima scrittura della chiave: %s') % (percorso[:1500], avvio, T(s.orario)),
-                  s.orario, e)
-        righe.append([nome, percorso[:300], T(s.orario), R.NOME_PESO[peso], motivo])
+        segnale = t.segnala(controllo, peso, famiglia, tr(u'Servizio \u00ab%s\u00bb: %s') % (nome, motivo),
+                            tr(u'%s\nAvvio: %s - Ultima scrittura della chiave: %s') % (percorso[:1500], avvio, T(s.orario)),
+                            s.orario, e, oggetti=(R.chiave(u'servizio', nome), R.chiave_programma(percorso, True)))
+        riga = [nome, percorso[:300], T(s.orario), R.NOME_PESO[peso], motivo]
+        candidato_acquisizione(t, segnale, nome, percorso, s.orario, riga, 3)
+        righe.append(riga)
 
 
 def _bam(t, h, e, ccs):
@@ -713,6 +718,60 @@ def _shimcache(t, h, e, ccs):
         t.esecuzione(voce['percorso'], 0, u'ShimCache', elemento=e, eseguito=bool(voce['eseguito']),
                      nota=tr(u'ultima modifica del file: %s') % T(voce['modificato']) if voce['modificato'] else u'')
     t.fatto(26)
+
+
+# --------------------------------------------------------------------------
+# Driver degli strumenti di acquisizione della memoria
+# --------------------------------------------------------------------------
+
+def _cartella(percorso):
+    p = R.percorso_normale(R.spezza_comando(percorso or u'')[0])
+    return p[:p.rfind(u'\\')] if u'\\' in p else u''
+
+
+def candidato_acquisizione(t, segnale, nome, percorso, ora, riga=None, colonna=0):
+    """Un servizio che ha il nome del driver di uno strumento di acquisizione
+    della memoria: si decide alla fine (rivedi_acquisizioni), quando si
+    conoscono i programmi eseguiti e le RAM. riga e colonna: dove la tabella
+    mostra il peso, da correggere se cambia."""
+    if segnale is not None and segnale.peso < R.DECISIVO and R.driver_forense(nome, percorso):
+        t.acquisizioni.append((segnale, percorso, ora, riga, colonna))
+
+
+def rivedi_acquisizioni(t):
+    """I driver degli strumenti che acquisiscono la memoria (DumpIt, WinPmem,
+    Magnet RAM Capture) li carica chi raccoglie le prove. Un nome pero' si
+    copia: il segnale diventa informativo solo se lo strumento risulta eseguito
+    dalla stessa cartella del driver e il driver e' stato installato entro
+    mezz'ora dall'acquisizione di una RAM indicata per questa macchina. L'hash
+    del file il plugin non lo puo' confrontare: non ha quelli degli strumenti, e
+    il driver di solito viene cancellato a fine acquisizione."""
+    if not t.acquisizioni:
+        return
+    acquisite = [m['ora'] for m in (t.contesto.get('memorie') or []) if m.get('ora') and m.get('conta', True)]
+    for s, percorso, ora, riga, colonna in t.acquisizioni:
+        cartella = _cartella(percorso)
+        strumenti = [x for x in t.esecuzioni if x['eseguito'] and R.acquisizione(x['percorso'])
+                     and cartella and _cartella(x['percorso']) == cartella]
+        vicine = [a for a in acquisite if ora and abs(a - ora) <= 1800]
+        if strumenti and vicine:
+            s.peso = R.INFORMATIVO
+            if riga is not None:
+                riga[colonna] = R.NOME_PESO[R.INFORMATIVO]
+            s.dettagli += u'\n' + (tr(u'Driver di uno strumento di acquisizione della memoria: %s risulta eseguito dalla '
+                                      u'stessa cartella e il driver \u00e8 stato installato a %d minuti '
+                                      u'dall\'acquisizione della RAM. \u00c8 di chi ha raccolto le prove; l\'hash del '
+                                      u'file, che il plugin non pu\u00f2 confrontare, va controllato.')
+                                   % (R.nome_base(strumenti[0]['percorso']), int(abs(vicine[0] - ora) // 60)))
+        else:
+            mancano = []
+            if not strumenti:
+                mancano.append(tr(u'lo strumento eseguito dalla stessa cartella'))
+            if not vicine:
+                mancano.append(tr(u'un\'acquisizione della RAM di questa macchina entro mezz\'ora'))
+            s.dettagli += u'\n' + (tr(u'Ha il nome del driver di uno strumento di acquisizione della memoria, ma '
+                                      u'mancano %s: il nome da solo non basta, perch\u00e9 si copia.')
+                                   % tr(u' e ').join(mancano))
 
 
 # --------------------------------------------------------------------------
@@ -758,24 +817,27 @@ def riepilogo_account(t):
                       T(u['password_impostata']), unicode(u['accessi']), u', '.join(stato)])
         t.vede(u['ultimo_accesso'])
         predefinito = u['nome'].lower() in _ACCOUNT_PREDEFINITI
+        oggetti = (R.chiave(u'account', u['nome']), R.chiave(u'sid', u'%s-%d' % (sid_macchina, u['rid'])) if sid_macchina else u'')
         if u['rid'] == 501 and e_admin:
             t.segnala(10, R.DECISIVO, R.F_ACCOUNT,
                       tr(u'L\'account Guest \u00e8 nel gruppo Administrators') + (u'' if u['disattivato'] else tr(u' ed \u00e8 attivo')),
-                      tr(u'Password impostata: %s') % T(u['password_impostata']), u['password_impostata'], e, extra=True)
+                      tr(u'Password impostata: %s') % T(u['password_impostata']), u['password_impostata'], e, extra=True,
+                      oggetti=oggetti)
         elif u['rid'] == 501 and not u['disattivato']:
             t.segnala(10, R.DA_CONFERMARE, R.F_ACCOUNT, tr(u'L\'account Guest \u00e8 attivo'),
-                      tr(u'Password impostata: %s') % T(u['password_impostata']), u['password_impostata'], e, extra=True)
+                      tr(u'Password impostata: %s') % T(u['password_impostata']), u['password_impostata'], e, extra=True,
+                      oggetti=oggetti)
         if not predefinito and u['nome'].endswith(u'$'):
             t.segnala(10, R.DA_CONFERMARE, R.F_ACCOUNT,
                       tr(u'Account locale \u00ab%s\u00bb con nome da account macchina ($ finale)') % u['nome'],
-                      tr(u'Creato: %s') % T(u['creato']), u['creato'], e)
+                      tr(u'Creato: %s') % T(u['creato']), u['creato'], e, oggetti=oggetti)
         vicino_installazione = installato and u['creato'] and abs(u['creato'] - installato) < 6 * 3600
         if not predefinito and u['rid'] >= 1000 and t.recente(u['creato']) and not vicino_installazione:
             t.segnala(10, R.DA_CONFERMARE, R.F_ACCOUNT,
                       tr(u'Account locale \u00ab%s\u00bb creato di recente (%s)%s')
                       % (u['nome'], T(u['creato']), tr(u', amministratore') if e_admin else u''),
                       tr(u'RID %d - ultimo accesso: %s - accessi: %d') % (u['rid'], T(u['ultimo_accesso']), u['accessi']),
-                      u['creato'], e)
+                      u['creato'], e, oggetti=oggetti)
     t.tabella(10, tr(u'Account locali (SAM)'),
               [tr(u'Nome'), tr(u'RID'), tr(u'Creato (UTC)'), tr(u'Ultimo accesso'), tr(u'Password impostata'), tr(u'Accessi'), tr(u'Stato')], righe,
               tr(u'La data di creazione \u00e8 l\'ultima scrittura della chiave Names\\<nome>. Su un controller di dominio '
@@ -813,7 +875,7 @@ def riepilogo_account(t):
         if t.recente(c.creato) and not (installato and abs(c.creato - installato) < 6 * 3600):
             t.segnala(10, R.INFORMATIVO, R.F_ACCOUNT,
                       tr(u'Profilo \u00ab%s\u00bb creato di recente (%s): primo accesso di quell\'utente alla macchina')
-                      % (c.nome, T(c.creato)), c.percorso, c.creato, c)
+                      % (c.nome, T(c.creato)), c.percorso, c.creato, c, oggetti=(R.chiave(u'account', c.nome),))
     righe.sort(key=lambda x: -x[0])
     t.tabella(10, tr(u'Profili degli utenti'), [tr(u'Cartella'), tr(u'Creata (UTC)'), tr(u'Modificata')], [r[1] for r in righe[:40]],
               tr(u'Le date di creazione posteriori all\'ultima attivit\u00e0 della macchina sono quelle della copia dei file, '
@@ -958,7 +1020,7 @@ def _utente_ntuser(t, h, e, utente, righe_mru, righe_rdp, righe_share):
                 if g.decodificato:
                     dettagli += tr(u'\nComando in chiaro: ') + u' '.join(g.decodificato.split())[:1500]
                 t.segnala(23, peso, famiglia, tr(u'RunMRU di %s: %s') % (utente, motivo), dettagli,
-                          k.orario if posizione == 1 else 0, e)
+                          k.orario if posizione == 1 else 0, e, oggetti=R.oggetti_comando(comando, u'', g.decodificato or u''))
             righe_mru.append([utente, unicode(posizione), comando[:400], R.NOME_PESO.get(peso, u'')])
     # UserAssist
     k = h.apri(u'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist')
@@ -1044,6 +1106,12 @@ def _acl(t, h, e, utente, chiavi):
 def amcache(t):
     e = t.radice.uno(u'windows/appcompat/programs/', u'amcache.hve')
     if e is None:
+        if not t.radice.piatta and t.contesto.get('build', 0) >= 9200:
+            # da Windows 8 c'e' sempre: senza, manca una fonte delle prove di esecuzione
+            t.avviso(tr(u'Amcache.hve non trovato su Windows %s (build %d), che lo crea sempre: manca una fonte delle '
+                        u'prove di esecuzione e il controllo 26 \u00e8 parziale.')
+                     % (t.contesto.get('prodotto') or u'', t.contesto.get('build', 0)))
+            t.parziale(26, u'Amcache.hve', tr(u'non trovato'), False)
         return
     h = carica_hive(t, e, u'Amcache.hve')
     if h is None:
@@ -1057,12 +1125,17 @@ def amcache(t):
                 continue
             produttore = k.dato(u'Publisher', u'')
             impronta = k.dato(u'FileId', u'')
+            originale = k.dato(u'OriginalFileName', u'')
+            prodotto = k.dato(u'ProductName', u'')
             nota = []
             if isinstance(produttore, unicode) and produttore:
                 nota.append(tr(u'produttore: ') + produttore)
+            if isinstance(originale, unicode) and originale:
+                nota.append(tr(u'nome originale: ') + originale)
             if isinstance(impronta, unicode) and len(impronta) >= 44:
                 nota.append(u'SHA-1: ' + impronta[4:44])
-            t.esecuzione(percorso, k.orario, u'AmCache', elemento=e, eseguito=False, nota=u', '.join(nota))
+            t.esecuzione(percorso, k.orario, u'AmCache', elemento=e, eseguito=False, nota=u', '.join(nota),
+                         versione=[x for x in (originale, prodotto) if isinstance(x, unicode)])
             quante += 1
     vecchio = h.apri(u'Root\\File')
     if vecchio is not None:
@@ -1072,10 +1145,12 @@ def amcache(t):
                 if not isinstance(percorso, unicode) or not percorso:
                     continue
                 impronta = k.dato(u'101', u'')
+                prodotto = k.dato(u'0', u'')
                 nota = u''
                 if isinstance(impronta, unicode) and len(impronta) >= 44:
                     nota = u'SHA-1: ' + impronta[4:44]
-                t.esecuzione(percorso, k.orario, u'AmCache', elemento=e, eseguito=False, nota=nota)
+                t.esecuzione(percorso, k.orario, u'AmCache', elemento=e, eseguito=False, nota=nota,
+                             versione=[prodotto] if isinstance(prodotto, unicode) else [])
                 quante += 1
     t.contesto['amcache'] = quante
 
@@ -1113,7 +1188,7 @@ def riepilogo_attivita(t):
             t.segnala(16, R.DECISIVO, R.F_PERSISTENZA,
                       tr(u'Attivit\u00e0 nascosta \u00ab%s\u00bb: %s') % (percorso, reg['nascosta']),
                       tr(u'Azioni: %s\nCreata: %s - ultimo avvio: %s') % (comandi[:1500], T(creato), T(reg['ultimo_avvio'])),
-                      creato, reg['elemento'])
+                      creato, reg['elemento'], oggetti=(R.chiave(u'attivita', percorso),))
             peso_massimo = R.DECISIVO
             motivi.append(tr(u'nascosta'))
         for comando, argomenti in azioni:
@@ -1128,7 +1203,7 @@ def riepilogo_attivita(t):
             if comando.lower().strip(u'"').endswith(u'.lnk'):
                 t.segnala(15, R.DA_CONFERMARE, R.F_PERSISTENZA,
                           tr(u'Attivit\u00e0 pianificata \u00ab%s\u00bb: lancia un collegamento .lnk') % percorso,
-                          (comando + u' ' + argomenti).strip(), creato, elemento)
+                          (comando + u' ' + argomenti).strip(), creato, elemento, oggetti=(R.chiave(u'attivita', percorso),))
                 peso_massimo = max(peso_massimo, R.DA_CONFERMARE)
                 motivi.append(tr(u'lancia un .lnk'))
         # firme di atexec rimaste su disco
@@ -1136,7 +1211,8 @@ def riepilogo_attivita(t):
             firma = firma_atexec(percorso, xml['azioni'], xml['avvii'])
             if firma:
                 t.segnala(28, firma[0], R.F_LATERALE, tr(u'Attivit\u00e0 \u00ab%s\u00bb: %s') % (percorso, firma[1]),
-                          u'\n'.join([(a + u' ' + b).strip() for a, b in xml['azioni']])[:1500], creato, elemento)
+                          u'\n'.join([(a + u' ' + b).strip() for a, b in xml['azioni']])[:1500], creato, elemento,
+                          oggetti=(R.chiave(u'attivita', percorso),))
                 peso_massimo = max(peso_massimo, firma[0])
                 motivi.append(firma[1])
         fuori_microsoft = not percorso.lower().startswith(u'\\microsoft\\')
@@ -1191,7 +1267,7 @@ def valuta_esecuzioni(t):
         r = per_percorso.get(chiave)
         if r is None:
             r = {'percorso': x['percorso'], 'fonti': [], 'ultimo': 0, 'conteggio': 0, 'utenti': [],
-                 'eseguito': False, 'elemento': x['elemento'], 'note': [], 'orari': []}
+                 'eseguito': False, 'elemento': x['elemento'], 'note': [], 'orari': [], 'versioni': []}
             per_percorso[chiave] = r
         if x['fonte'] not in r['fonti']:
             r['fonti'].append(x['fonte'])
@@ -1208,6 +1284,9 @@ def valuta_esecuzioni(t):
             r['orari'].extend(x['orari'])
         if x.get('nota') and len(r['note']) < 3:
             r['note'].append(x['nota'])
+        for v in x.get('versione') or ():
+            if v not in r['versioni'] and len(r['versioni']) < 6:
+                r['versioni'].append(v)
     righe_strumenti = []
     righe_zone = []
     segnalati = 0
@@ -1236,6 +1315,12 @@ def valuta_esecuzioni(t):
         if peso >= R.DA_CONFERMARE:
             peso_segnale = peso
             vecchio = u''
+            if peso >= R.DECISIVO and not r['eseguito'] and not [v for v in r['versioni'] if R.strumento(v)[0] >= R.DECISIVO]:
+                # un nome si copia: senza una prova di esecuzione o le informazioni di
+                # versione del file che lo confermino, uno strumento resta da confermare
+                peso_segnale = R.DA_CONFERMARE
+                dettagli += u'\n' + tr(u'Solo il nome: nessuna prova di esecuzione e nessuna informazione di versione del '
+                                        u'file che confermi lo strumento.')
             if peso == R.DA_CONFERMARE and quando and t.riferimento and not t.recente(quando):
                 # uno strumento a doppio uso usato l'ultima volta molto prima
                 # del periodo sotto esame resta nel report, ma come contesto
@@ -1243,7 +1328,7 @@ def valuta_esecuzioni(t):
                 vecchio = tr(u' (non recente)')
             t.segnala(controllo, peso_segnale, famiglia,
                       u'%s %s%s: %s' % (cosa[0].upper() + cosa[1:], prova, vecchio, r['percorso']),
-                      dettagli, quando, r['elemento'])
+                      dettagli, quando, r['elemento'], oggetti=(R.chiave_file(r['percorso']),))
             righe_strumenti.append((quando, [r['percorso'], cosa, prova, T(r['ultimo']), u', '.join(r['fonti']),
                                              R.NOME_PESO[peso_segnale]]))
         strumento = R.trova_rmm(nome) or (R.trova_rmm(chiave) if u'quickassist' not in chiave else None)
@@ -1259,7 +1344,8 @@ def valuta_esecuzioni(t):
                 tr(u'avviato da una cartella dove di norma non ci sono programmi')
             if segnalati < 25 and peso < R.DA_CONFERMARE:
                 t.segnala(controllo, R.DA_CONFERMARE, R.F_ESECUZIONE,
-                          tr(u'Programma %s: %s') % (motivo, r['percorso']), dettagli, quando, r['elemento'])
+                          tr(u'Programma %s: %s') % (motivo, r['percorso']), dettagli, quando, r['elemento'],
+                          oggetti=(R.chiave_file(r['percorso']),))
                 segnalati += 1
         if z in (u'sospetta', u'temporanea', u'utente') and not R.noto_in_profilo(chiave):
             righe_zone.append((quando, [r['percorso'], T(r['ultimo']), unicode(r['conteggio'] or u''),

@@ -13,8 +13,10 @@ import time
 import tc_eventi
 import tc_regole as R
 import tc_c_registro
+import tc_memoria
 from tc_base import testo_orario as T, ERRORI
-from tc_lingua import tr, N_
+from tc_lingua import tr, N_, quanti
+from tc_lingua import volte as quante_volte
 
 _BASATI_SUGLI_EVENTI = (8, 9, 11, 12, 13, 14, 18, 25, 27, 31, 36)
 _PROCESSI_LATERALI = set([u'wmic.exe', u'powershell.exe', u'pwsh.exe', u'cmd.exe', u'net.exe', u'net1.exe',
@@ -93,6 +95,13 @@ def leggi(t):
         if voce[1] and voce[1] > t.ultimo_evento:
             t.ultimo_evento = voce[1]
     t.contesto['registri_letti'] = len(scelti)
+    if rac.nomi and not t.contesto.get('computer'):
+        # senza l'hive SYSTEM il nome dell'installazione viene dai suoi registri
+        # eventi: quello degli eventi piu' recenti di Security e System
+        v = max(rac.nomi.values(), key=lambda x: x[1])
+        t.contesto['computer'] = v[3]
+        t.contesto['computer_fonte'] = u'eventi'
+    _fase_installazione(t, rac)
 
 
 # --------------------------------------------------------------------------
@@ -126,11 +135,67 @@ def _vicino_installazione(t, ora, ore=48):
     return bool(installato and ora and abs(ora - installato) < ore * 3600)
 
 
+def _fase_installazione(t, rac):
+    """Quando questa copia di Windows e' stata installata o distribuita,
+    secondo i registri eventi: serve quando manca l'hive SOFTWARE (registri
+    raccolti da soli) e quando gli eventi della preparazione dell'immagine sono
+    molto piu' vecchi della data di installazione del registro (che e' quella
+    della distribuzione). Si riconosce dal cambio di nome del computer: gli
+    eventi della preparazione portano un altro nome (WIN-XXXXXXXXXXX, MINWINPC
+    o quello della macchina su cui e' stata preparata l'immagine), poi compare
+    il nome definitivo. Il nome vecchio deve durare poco (una preparazione, non
+    mesi di uso): un computer rinominato dopo mesi non e' un'installazione.
+    Senza un cambio di nome cosi' non si sa nulla e non si suppone nulla."""
+    if len(rac.nomi) < 2:
+        return
+    definitivo = (t.contesto.get('computer') or u'').split(u'.')[0].lower()
+    if definitivo not in rac.nomi:
+        definitivo = max(rac.nomi.items(), key=lambda x: x[1][1])[0]
+    comparso = rac.nomi[definitivo][0]
+    prima = [v for k, v in rac.nomi.items() if k != definitivo and v[0] and v[0] < comparso]
+    if not prima or not comparso:
+        return
+    inizio = min([v[0] for v in prima])
+    fine_vecchi = max([v[1] for v in prima])
+    if fine_vecchi - inizio > 86400.0:
+        return
+    t.contesto['preparazione'] = (inizio, comparso)
+    # i nomi della preparazione: gli eventi scritti con questi nomi (anche in registri
+    # che non sono stati svuotati con gli altri) sono della preparazione
+    t.contesto['nomi_preparazione'] = set([k for k, v in rac.nomi.items() if k != definitivo and v[0] and v[0] < comparso])
+
+
+def _in_preparazione(t, ora, ore, computer=u''):
+    """Vero se l'evento e' dell'installazione di Windows: entro 'ore' dalla
+    data di installazione del registro, oppure tra l'inizio della preparazione
+    e 'ore' dopo la comparsa del nome definitivo, oppure scritto con un nome
+    della preparazione (vedi _fase_installazione)."""
+    if _vicino_installazione(t, ora, ore):
+        return True
+    if computer and computer in (t.contesto.get('nomi_preparazione') or ()):
+        return True
+    fase = t.contesto.get('preparazione')
+    return bool(fase and ora and fase[0] - 3600 <= ora <= fase[1] + ore * 3600)
+
+
+def _nomi_macchina(t, rac):
+    """Tutti i nomi che la macchina ha avuto: quello del registro e quelli dei
+    suoi eventi di Security e System."""
+    nomi = set([x.lower() for x in rac.computer]) | set(rac.nomi.keys())
+    if t.contesto.get('computer'):
+        nomi.add(t.contesto['computer'].split(u'.')[0].lower())
+    return nomi
+
+
+def _eventi(n):
+    return quanti(n, N_(u'%d evento'), N_(u'%d eventi'))
+
+
 def _durata(secondi):
     if secondi < 3600:
-        return tr(u'%d minuti') % max(1, int(secondi / 60))
+        return quanti(max(1, int(secondi / 60)), N_(u'%d minuto'), N_(u'%d minuti'))
     if secondi < 2 * 86400:
-        return tr(u'%d ore') % int(secondi / 3600)
+        return quanti(int(secondi / 3600), N_(u'%d ora'), N_(u'%d ore'))
     return tr(u'%d giorni') % int(secondi / 86400)
 
 
@@ -187,19 +252,33 @@ def _stato_dei_registri(t, rac, non_validi, non_letti):
                      u'danneggiata): %s%s. I loro eventi non sono stati controllati.')
                      % (len(altri), u', '.join([_nome_registro(n) for n in altri[:6]]),
                         tr(u' e altri') if len(altri) > 6 else u''))
+    # Due cose diverse: i blocchi rovinati e i record che i blocchi dichiarano
+    # ma non contengono (il file e' danneggiato), e i record integri che il
+    # lettore non ha saputo decodificare (il file non e' per forza danneggiato:
+    # il record puo' essere rovinato dentro o scritto in una forma che il
+    # lettore non conosce).
     rovinati = []
+    non_decodificati = []
     for nome, v in sorted(rac.copertura.items()):
-        guasti = v[6] + v[4]
-        if guasti or v[8]:
+        totale = max(v[2], v[9] + v[6])
+        if v[6] or v[8]:
             pezzi = []
-            if guasti:
-                pezzi.append(tr(u'%d eventi non leggibili su %d') % (guasti, max(v[2], v[9] + v[6])))
+            if v[6]:
+                pezzi.append(tr(u'%d eventi non leggibili su %d') % (v[6], totale))
             if v[8]:
                 pezzi.append(tr(u'%d blocchi rovinati') % v[8])
             rovinati.append(u'%s (%s)' % (_nome_registro(nome), u', '.join(pezzi)))
+        if v[4]:
+            non_decodificati.append(u'%s (%d su %d)' % (_nome_registro(nome), v[4], totale))
     if rovinati:
         t.avviso(tr(u'Registri eventi danneggiati: %s%s. Gli eventi che mancano non sono stati controllati.')
                  % (u'; '.join(rovinati[:6]), tr(u' e altri') if len(rovinati) > 6 else u''))
+    if non_decodificati:
+        t.avviso(tr(u'Eventi non decodificati: %s%s. I record ci sono, ma il lettore del plugin non ne ha saputo leggere '
+                 u'il contenuto: possono essere rovinati oppure scritti in una forma che il lettore non conosce. Questi '
+                 u'eventi non sono stati controllati; si possono aprire con un altro strumento (per esempio il '
+                 u'Visualizzatore eventi di Windows).')
+                 % (u'; '.join(non_decodificati[:6]), tr(u' e altri') if len(non_decodificati) > 6 else u''))
     # orologio spostato: l'evento con la data piu' recente non e' l'ultimo scritto
     spostati = [(v[1] - v[5], nome, v) for nome, v in rac.copertura.items() if v[1] and v[5] and v[1] - v[5] > 86400.0]
     if spostati:
@@ -376,13 +455,18 @@ def _cancellati(t, rac):
             # risolvendo un problema, ma va chiesto chi e' stato
             peso = R.DA_CONFERMARE
             nota = u''
+        dettagli = tr(u'Eventi %s. Servono diritti di amministratore.') % u', '.join(sorted(set([unicode(c['id']) for c in g])))
+        if not vicino and _in_preparazione(t, primo['ora'], 48, primo.get('computer') or u''):
+            # non cambia il peso: chi prepara un'immagine svuota i registri, ma va comunque spiegato
+            dettagli += u'\n' + tr(u'Secondo i registri eventi la cancellazione \u00e8 avvenuta durante la preparazione della '
+                                    u'macchina (nome %s, poi sostituito): se fa parte della preparazione dell\'immagine, '
+                                    u'chi l\'ha preparata lo pu\u00f2 confermare.') % (primo.get('computer') or u'?')
         t.segnala(9, peso, R.F_ANTIFORENSE,
                   (tr(u'1 registro cancellato da %s%s: %s') % (primo['utente'], nota, registri[0])) if len(registri) == 1 else
                   (tr(u'%d registri cancellati da %s%s: %s')
                    % (len(registri), primo['utente'], nota,
                       u', '.join(registri[:8]) + (u'...' if len(registri) > 8 else u''))),
-                  tr(u'Eventi %s. Servono diritti di amministratore.') % u', '.join(sorted(set([unicode(c['id']) for c in g]))),
-                  primo['ora'], primo['elemento'])
+                  dettagli, primo['ora'], primo['elemento'], oggetti=R.chiavi_tempo(u'pulizia', primo['ora']))
         righe.append([T(primo['ora']), primo['utente'], u', '.join(registri), R.NOME_PESO[peso]])
     t.tabella(9, tr(u'Registri cancellati'), [tr(u'Quando (UTC)'), tr(u'Da chi'), tr(u'Registri'), tr(u'Peso')], righe)
 
@@ -412,10 +496,10 @@ def _accessi(t, rac):
     elemento = sicurezza[3] if sicurezza else None
     for (ip, utente), r in sorted(pubblici.items(), key=lambda x: -x[1][2])[:15]:
         t.segnala(11, R.DA_CONFERMARE, R.F_ACCESSI,
-                  tr(u'Accesso riuscito da un indirizzo pubblico: %s come %s (%s, %d volte)')
-                  % (ip, utente, u', '.join(sorted(r[3])), r[0]),
+                  tr(u'Accesso riuscito da un indirizzo pubblico: %s come %s (%s, %s)')
+                  % (ip, utente, u', '.join(sorted(r[3])), quante_volte(r[0])),
                   tr(u'Primo: %s - ultimo: %s (UTC). Verifica se quell\'utente si collega davvero da l\u00ec.') % (T(r[1]), T(r[2])),
-                  r[1], elemento)
+                  r[1], elemento, oggetti=(R.chiave(u'ip', ip),))
         segnalati.add(ip)
     if sicurezza is not None:
         t.fatto(11, 12)
@@ -423,9 +507,7 @@ def _accessi(t, rac):
     righe = []
     pubbliche = 0
     candidati = []
-    locali = set(rac.computer)
-    if t.contesto.get('computer'):
-        locali.add(t.contesto['computer'].lower())
+    locali = _nomi_macchina(t, rac)
     for origine, v in rac.falliti.items():
         n, primo, ultimo, provati, massimo = v[0], v[1], v[2], v[3], v[6]
         inizio_raffica = v[8] if len(v) > 8 else 0
@@ -478,13 +560,14 @@ def _accessi(t, rac):
                   % (T(primo), T(ultimo), massimo, u', '.join(sorted(provati)[:10]),
                      tr(u' Primo accesso riuscito dopo l\'inizio della raffica (%s): %s.') % (T(inizio_raffica), T(riuscito))
                      if riuscito else u''),
-                  inizio_raffica or primo, elemento, attacco)
+                  inizio_raffica or primo, elemento, attacco, oggetti=(R.chiave(u'ip', origine),))
     for chiave, v in rac.logon.items():
         if R.host_di_attacco(chiave[2]) and chiave[2].lower() not in [c[1].lower() for c in candidati]:
             t.segnala(11, R.DA_CONFERMARE, R.F_ACCESSI,
                       tr(u'Accesso riuscito da un computer chiamato \u00ab%s\u00bb come %s') % (chiave[2], chiave[0]),
-                      tr(u'Nome predefinito di una distribuzione usata per gli attacchi. %d volte, primo: %s - ultimo: %s (UTC).')
-                      % (v[0], T(v[1]), T(v[2])), v[1], elemento, True)
+                      tr(u'Nome predefinito di una distribuzione usata per gli attacchi. %s, primo: %s - ultimo: %s (UTC).')
+                      % (quante_volte(v[0]), T(v[1]), T(v[2])), v[1], elemento, True,
+                      oggetti=(R.chiave(u'host', chiave[2]), R.chiave(u'ip', chiave[1])))
     if pubbliche >= 20:
         t.segnala(12, R.INFORMATIVO, R.F_ACCESSI,
                   tr(u'Accessi falliti da %d indirizzi pubblici diversi: la macchina \u00e8 esposta a Internet') % pubbliche,
@@ -504,11 +587,11 @@ def _accessi(t, rac):
         if pubblico and indirizzo not in visti and len(visti) < 15:
             visti.add(indirizzo)
             t.segnala(14, R.DA_CONFERMARE, R.F_ACCESSI,
-                      tr(u'Sessione RDP da un indirizzo pubblico: %s come %s (%d eventi)') % (indirizzo, utente, v[0]),
+                      tr(u'Sessione RDP da un indirizzo pubblico: %s come %s (%s)') % (indirizzo, utente, _eventi(v[0])),
                       tr(u'Primo: %s - ultimo: %s (UTC). Fonte: %s.%s')
                       % (T(v[1]), T(v[2]), fonte,
                          tr(u' Lo stesso indirizzo compare anche nei 4624.') if indirizzo in segnalati else u''),
-                      v[1], v[3] if len(v) > 3 else None)
+                      v[1], v[3] if len(v) > 3 else None, oggetti=(R.chiave(u'ip', indirizzo),))
     righe.sort()
     t.tabella(14, tr(u'Sessioni RDP in entrata (Terminal Services)'),
               [tr(u'Utente'), tr(u'Indirizzo'), tr(u'Eventi'), tr(u'Primo (UTC)'), tr(u'Ultimo (UTC)'), tr(u'Fonte'), tr(u'Nota')],
@@ -523,7 +606,7 @@ def _accessi(t, rac):
 
 def _espliciti(t, rac):
     righe = []
-    computer = (t.contesto.get('computer') or u'').lower()
+    nomi = _nomi_macchina(t, rac)
     sicurezza = rac.copertura.get(u'security.evtx')
     elemento = sicurezza[3] if sicurezza else None
     segnalati = 0
@@ -531,12 +614,13 @@ def _espliciti(t, rac):
         soggetto, bersaglio, server, processo, ip = chiave
         righe.append([soggetto, bersaglio, server, processo, unicode(v[0]), T(v[1]), T(v[2])])
         basso = server.lower().rstrip(u'$')
-        remoto = basso and basso not in (u'localhost', u'-', computer) and not basso.startswith(computer + u'.')
+        remoto = basso and basso not in (u'localhost', u'-') and basso.split(u'.')[0] not in nomi
         if remoto and processo in _PROCESSI_LATERALI and segnalati < 10 and not soggetto.endswith(u'$'):
             segnalati += 1
             t.segnala(13, R.DA_CONFERMARE, R.F_LATERALE,
                       tr(u'Credenziali esplicite verso %s: %s usa l\'account %s da %s') % (server, soggetto, bersaglio, processo),
-                      tr(u'Evento 4648, %d volte. Primo: %s - ultimo: %s (UTC).') % (v[0], T(v[1]), T(v[2])), v[1], elemento)
+                      tr(u'Evento 4648, %s. Primo: %s - ultimo: %s (UTC).') % (quante_volte(v[0]), T(v[1]), T(v[2])), v[1], elemento,
+                      oggetti=(R.chiave(u'host', server.rstrip(u'$')),))
     t.tabella(13, tr(u'Credenziali esplicite (4648): le 30 combinazioni pi\u00f9 recenti'),
               [tr(u'Chi'), tr(u'Account usato'), tr(u'Verso'), tr(u'Processo'), tr(u'Volte'), tr(u'Primo (UTC)'), tr(u'Ultimo (UTC)')], righe[:30])
     righe = []
@@ -584,9 +668,12 @@ def _servizi(t, rac):
             motivi.append(tr(u'seguito dal timeout 7009: il programma non si comporta da servizio'))
             if not peso:
                 peso = R.INFORMATIVO
-        if peso and peso < R.DECISIVO and R.driver_forense(nome, percorso):
+        if peso == R.DA_CONFERMARE and len(motivi) == 1 and R.zona(R.spezza_comando(percorso)[0]) == u'temporanea' \
+                and _in_preparazione(t, g['primo'], 48, s.get('computer') or u''):
+            # il servizio di un programma di installazione, durante l'installazione di Windows
             peso = R.INFORMATIVO
-            motivi.append(tr(u'driver di uno strumento di acquisizione forense'))
+            motivi.append(tr(u'durante l\'installazione di Windows: di solito \u00e8 il servizio temporaneo di un '
+                             u'programma di installazione'))
         strumento = R.trova_rmm(nome + u' ' + percorso)
         if strumento:
             t.prova_rmm(strumento, tr(u'servizio installato (evento %s)') % u'/'.join(sorted(g['fonti'])),
@@ -594,12 +681,15 @@ def _servizi(t, rac):
         motivo = u'; '.join(motivi)
         if peso:
             volte = tr(u' (%d volte)') % g['n'] if g['n'] > 1 else u''
-            t.segnala(controllo, peso, famiglia, tr(u'Servizio installato \u00ab%s\u00bb%s: %s') % (nome, volte, motivo),
+            segnale = t.segnala(controllo, peso, famiglia, tr(u'Servizio installato \u00ab%s\u00bb%s: %s') % (nome, volte, motivo),
                       tr(u'%s\nTipo: %s - avvio: %s - account: %s\nPrimo: %s - ultimo: %s (UTC) - evento %s')
                       % (percorso[:1500], s['tipo'], s['avvio'], s['account'], T(g['primo']), T(g['ultimo']),
-                         u'/'.join(sorted(g['fonti']))), g['primo'], s['elemento'])
-        righe.append((g['ultimo'], [T(g['primo']), nome, percorso[:300], s['tipo'], s['account'], unicode(g['n']),
-                                    R.NOME_PESO.get(peso, u''), motivo]))
+                         u'/'.join(sorted(g['fonti']))), g['primo'], s['elemento'],
+                      oggetti=(R.chiave(u'servizio', nome), R.chiave_programma(percorso, True)))
+        riga = [T(g['primo']), nome, percorso[:300], s['tipo'], s['account'], unicode(g['n']), R.NOME_PESO.get(peso, u''), motivo]
+        if peso:
+            tc_c_registro.candidato_acquisizione(t, segnale, nome, percorso, g['primo'], riga, 6)
+        righe.append((g['ultimo'], riga))
     righe.sort(key=lambda x: -x[0])
     t.tabella(18, tr(u'Servizi installati (eventi 7045 e 4697): i 40 pi\u00f9 recenti'),
               [tr(u'Installato (UTC)'), tr(u'Nome'), tr(u'Percorso'), tr(u'Tipo'), u'Account', tr(u'Volte'), tr(u'Peso'), tr(u'Motivo')],
@@ -679,7 +769,8 @@ def _attivita(t, rac):
                               % (nome, int(secondi * 1000),
                                  tr(u': nome di 8 lettere a caso nella cartella radice, come fa atexec') if casuale else u''),
                               tr(u'Creata da %s il %s (UTC). Azione: %s\nFonte: %s')
-                              % (c['utente'], T(c['ora']), azione or tr(u'(non registrata)'), fonte), c['ora'], c['elemento'])
+                              % (c['utente'], T(c['ora']), azione or tr(u'(non registrata)'), fonte), c['ora'], c['elemento'],
+                              oggetti=(R.chiave(u'attivita', nome),))
             else:
                 peso = R.INFORMATIVO
             viste.add(chiave)
@@ -700,7 +791,8 @@ def _attivita(t, rac):
                 continue
             gia.add((c['nome'], firma[1]))
             t.segnala(28, firma[0], R.F_LATERALE, tr(u'Attivit\u00e0 \u00ab%s\u00bb: %s') % (c['nome'], firma[1]),
-                      tr(u'Creata da %s il %s (UTC).\n%s') % (c['utente'], T(c['ora']), comandi[:1500]), c['ora'], c['elemento'])
+                      tr(u'Creata da %s il %s (UTC).\n%s') % (c['utente'], T(c['ora']), comandi[:1500]), c['ora'], c['elemento'],
+                      oggetti=(R.chiave(u'attivita', c['nome']),))
             continue
         # Un'attivita' puo' essere creata innocua e poi ricreata o modificata
         # con un'altra azione: si giudica ogni versione diversa. Quella che
@@ -759,9 +851,9 @@ def _condivisioni(t, rac):
     righe = []
     for (classe, ip, utente), g in sorted(gruppi.items(), key=lambda x: x[1]['primo']):
         peso, famiglia, testo, extra = testi[classe]
-        t.segnala(31, peso, famiglia, tr(u'Da %s come %s: %s (%d eventi)') % (ip, utente, testo, g['n']),
+        t.segnala(31, peso, famiglia, tr(u'Da %s come %s: %s (%s)') % (ip, utente, testo, _eventi(g['n'])),
                   tr(u'Primo: %s - ultimo: %s (UTC)\n%s') % (T(g['primo']), T(g['ultimo']), u'\n'.join(g['esempi'])),
-                  g['primo'], g['elemento'], extra)
+                  g['primo'], g['elemento'], extra, oggetti=(R.chiave(u'ip', ip),))
         righe.append([ip, utente, u'; '.join(g['esempi'][:3]), unicode(g['n']), T(g['primo']), T(g['ultimo']), R.NOME_PESO[peso]])
     t.tabella(31, tr(u'Accessi alle share tipici dell\'esecuzione remota (5145)'),
               [tr(u'Indirizzo'), tr(u'Utente'), tr(u'Oggetto'), tr(u'Eventi'), tr(u'Primo (UTC)'), tr(u'Ultimo (UTC)'), tr(u'Peso')], righe)
@@ -783,6 +875,11 @@ def _processi(t, rac):
             r['peso'] = R.INFORMATIVO
             motivo += tr(u' (a ridosso dell\'installazione di Windows)')
             r['motivo'] = motivo
+        elif r['peso'] == R.DA_CONFERMARE and r.get('chiaro') and _in_preparazione(t, r['primo'], 48, r.get('computer') or u''):
+            # i comandi codificati degli script che preparano la macchina (Packer e simili)
+            r['peso'] = R.INFORMATIVO
+            motivo += tr(u' (durante l\'installazione di Windows: uno script di preparazione della macchina)')
+            r['motivo'] = motivo
         mostrato = r['riga'] if len(r['righe']) <= 1 else r['processo']
         chiaro = u''
         if r.get('chiaro'):
@@ -791,16 +888,26 @@ def _processi(t, rac):
                   tr(u'%s%s\nProcesso padre: %s - utente: %s\nPrimo: %s - ultimo: %s (UTC) - fonte: %s')
                   % (u'\n'.join(r['righe'])[:2500], chiaro, r['padre'] or u'-', r['utente'], T(r['primo']),
                      T(r['ultimo']), r['fonte']),
-                  r['primo'], r['elemento'])
+                  r['primo'], r['elemento'], oggetti=_oggetti_processo(r))
         righe.append((r['primo'], [T(r['primo']), unicode(r['n']), r['riga'][:400], R.nome_base(r['padre']), r['utente'],
                                    r['motivo'], R.NOME_PESO[r['peso']]]))
     for r in sorted(rac.powershell.values(), key=lambda x: (-x['peso'], x['ora'])):
         famiglia = r.get('famiglia') or (R.F_STRUMENTI if r['peso'] == R.DECISIVO else R.F_ESECUZIONE)
+        if r['peso'] == R.DA_CONFERMARE and r.get('codificato') and _in_preparazione(t, r['ora'], 48, r.get('computer') or u''):
+            r['peso'] = R.INFORMATIVO
+            r['motivo'] += tr(u' (durante l\'installazione di Windows: uno script di preparazione della macchina)')
         dove = tr(u'blocco di script (4104)') if r['fonte'] == u'4104' else tr(u'avvio di PowerShell (400)')
+        oggetti = tuple(r.get('oggetti') or ())
+        account = R.account_del_comando(r['estratto'])
+        if account:
+            # il blocco che crea un account e l'evento 4720 di quell'account sono un fatto solo
+            oggetti += (R.chiave(u'account', account),)
+        if R.sui_registri(r['motivo'] or u''):
+            oggetti += R.chiavi_tempo(u'pulizia', r['ora'])
         t.segnala(25, r['peso'], famiglia, u'PowerShell, %s: %s' % (dove, r['motivo']),
-                  tr(u'%s%s\nPrimo: %s (UTC) - %d volte') % (u'File: %s\n' % r['percorso'] if r['percorso'] else u'',
-                                                         r['estratto'][:1500], T(r['ora']), r['n']),
-                  r['ora'], r['elemento'], True)
+                  tr(u'%s%s\nPrimo: %s (UTC) - %s') % (u'File: %s\n' % r['percorso'] if r['percorso'] else u'',
+                                                      r['estratto'][:1500], T(r['ora']), quante_volte(r['n'])),
+                  r['ora'], r['elemento'], True, oggetti=oggetti)
         righe.append((r['ora'], [T(r['ora']), unicode(r['n']), r['estratto'][:400], u'PowerShell', r['utente'], r['motivo'],
                                  R.NOME_PESO[r['peso']]]))
     momenti = [(ora, nome, None) for ora, nome, utente, riga in rac.ricognizione]
@@ -845,8 +952,10 @@ def _account(t, rac):
         chi = a['soggetto'].split(u'\\')[-1].lower()
         provvisorio = chi.endswith(u'$') and _RX_NOME_PROVVISORIO.match(chi[:-1]) is not None \
             and chi[:-1] != (a.get('computer') or computer)
-        vicino = di_sistema and (_vicino_installazione(t, a['ora'], 15) or provvisorio or
-                                 (computer and a.get('computer') and a['computer'] != computer) or
+        # Un evento con un nome di computer diverso da quello attuale non e' per
+        # questo dell'installazione: il computer puo' essere stato rinominato dopo
+        # (gli eventi di prima hanno il nome vecchio). Conta solo il momento.
+        vicino = di_sistema and (_in_preparazione(t, a['ora'], 15, a.get('computer') or u'') or provvisorio or
                                  a['soggetto'].lower().endswith(u'anonymous logon'))
         segno = u''
         if ident == 4720:
@@ -866,15 +975,21 @@ def _account(t, rac):
                 segno = u'*'
         righe.append([T(a['ora']), u'%d %s' % (ident, tr(_NOME_EVENTO_ACCOUNT.get(ident, u''))), a['soggetto'], a['bersaglio'],
                       a['nome_membro'] if a['nome_membro'] not in (u'', u'-') else a['membro'], segno])
+    sospetti = {}         # account appena creati o aggiunti agli amministratori: nome -> come
+    nomi_sid = dict([(a['sid_bersaglio'], a['bersaglio'].split(u'\\')[-1]) for a in rac.account
+                     if a['id'] == 4720 and a['sid_bersaglio']])
     for bersaglio, g in creati.items():
         a = g['primo']
         if dc:
             peso = R.INFORMATIVO      # su un controller di dominio creare utenti e' ordinaria amministrazione
         else:
             peso = R.DA_CONFERMARE if t.recente(a['ora']) else R.INFORMATIVO
+        if peso >= R.DA_CONFERMARE:
+            sospetti[bersaglio.split(u'\\')[-1].lower()] = tr(u'creato il %s UTC (evento 4720)') % T(a['ora'])
         volte = tr(u' (%d eventi)') % g['n'] if g['n'] > 1 else u''
         t.segnala(10, peso, R.F_ACCOUNT, tr(u'Account \u00ab%s\u00bb creato da %s%s') % (bersaglio, a['soggetto'], volte),
-                  tr(u'Evento 4720 del %s (UTC).') % T(a['ora']), a['ora'], a['elemento'])
+                  tr(u'Evento 4720 del %s (UTC).') % T(a['ora']), a['ora'], a['elemento'],
+                  oggetti=(R.chiave(u'account', bersaglio.split(u'\\')[-1]), R.chiave(u'sid', a.get('sid_bersaglio'))))
     for (membro, gruppo, sid), a in aggiunti.items():
         if sid.endswith(u'-501') and gruppo == u'Administrators':
             peso = R.DECISIVO
@@ -882,10 +997,40 @@ def _account(t, rac):
         else:
             peso = R.DA_CONFERMARE if t.recente(a['ora']) else R.INFORMATIVO
             testo = tr(u'%s aggiunto al gruppo %s da %s') % (membro, gruppo, a['soggetto'])
+        nome = nomi_sid.get(sid) or membro.split(u'\\')[-1]
+        if peso >= R.DA_CONFERMARE and gruppo == u'Administrators' and not nome.upper().startswith(u'S-1-'):
+            sospetti.setdefault(nome.lower(), tr(u'aggiunto al gruppo Administrators il %s UTC (evento %d)') % (T(a['ora']), a['id']))
         t.segnala(10, peso, R.F_ACCOUNT, testo, tr(u'Evento %d del %s (UTC).') % (a['id'], T(a['ora'])),
-                  a['ora'], a['elemento'], peso == R.DECISIVO)
+                  a['ora'], a['elemento'], peso == R.DECISIVO,
+                  oggetti=(R.chiave(u'account', membro.split(u'\\')[-1]), R.chiave(u'sid', sid)))
+    if sospetti:
+        # nella RAM, processi attivi con l'utente di uno di questi account: l'account e' in uso
+        tc_memoria.account_in_memoria(t, sospetti)
     t.tabella(10, tr(u'Eventi sugli account (creazione, gruppi, password): gli ultimi 60'),
               [tr(u'Quando (UTC)'), tr(u'Evento'), tr(u'Da chi'), tr(u'Su'), tr(u'Membro'), tr(u'Segnalato')], righe[-60:])
+
+
+def _senza_prefisso(percorso):
+    """Il percorso di un rilevamento di Defender senza il tipo davanti
+    ("file:_C:\\Users\\...", "containerfile:_...")."""
+    if u':_' in percorso[:20]:
+        return percorso.split(u':_', 1)[1]
+    return percorso
+
+
+def _oggetti_processo(r):
+    """Le chiavi di un comando segnalato dagli eventi 4688 o Sysmon: ogni riga
+    di comando del gruppo, il programma (se non e' di Windows), il comando in
+    chiaro."""
+    chiavi = list(R.oggetti_comando(r['riga'], r['processo'], r.get('chiaro') or u''))
+    for riga in r['righe']:
+        k = R.chiave_comando(riga)
+        if k and k not in chiavi:
+            chiavi.append(k)
+    if R.sui_registri(r['motivo'] or u''):
+        # il comando che cancella i registri e gli eventi 1102 e 104 della cancellazione sono lo stesso fatto
+        chiavi.extend(R.chiavi_tempo(u'pulizia', r['primo']))
+    return tuple(chiavi)
 
 
 def _defender(t, rac):
@@ -918,7 +1063,8 @@ def _defender(t, rac):
                   % (T(g['primo']), T(g['ultimo']), g['utente'], u'\n'.join(g['esempi'])[:1500],
                      tr(u'Azione di rimozione registrata (evento 1117).') if g['azione'] else
                      tr(u'Nessuna azione di rimozione registrata per almeno un rilevamento.')),
-                  g['primo'], g['elemento'])
+                  g['primo'], g['elemento'],
+                  oggetti=(R.chiave(u'minaccia', minaccia),) + tuple([R.chiave_file(_senza_prefisso(x)) for x in g['esempi']]))
     t.tabella(37, tr(u'Rilevamenti di Windows Defender (eventi 1116 e 1117)'),
               [tr(u'Quando (UTC)'), tr(u'Minaccia'), tr(u'Gravit\u00e0'), tr(u'Dove'), tr(u'Utente'), tr(u'Processo'), tr(u'Rimozione')], righe[-80:])
     for m in rac.defender_modifiche:

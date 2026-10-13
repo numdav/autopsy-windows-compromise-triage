@@ -11,8 +11,8 @@ andato. L'analista aggiunge la cartella al caso come file logici; qui la si
 ritrova e si riempiono i controlli dei dati volatili:
 
    3  utenti collegati           windows.sessions
-   4  processi e riga di comando windows.pslist, pstree, psscan, cmdline
-   5  connessioni di rete        windows.netscan (o netstat)
+   4  processi e riga di comando windows.pslist, pstree, psscan, cmdline (getsids per gli utenti)
+   5  connessioni di rete        windows.netscan (o netstat, che non vede le connessioni chiuse)
    7  connessioni SMB            windows.netscan (o netstat)
 
 con le stesse regole che il plugin usa per il disco (tc_regole, e
@@ -26,13 +26,20 @@ che ci sono li ha gia' valutati il controllo 17.
 La cache DNS (controllo 6) e le sessioni SMB vere e proprie non si ricavano
 con i plugin di Volatility 3: restano al triage dal vivo.
 
-Ogni risultato di Volatility e' legato a un computer: lo si riconosce dal
-nome (variabile COMPUTERNAME dei processi). Si usa la RAM che sta nella
-stessa origine dati dell'installazione di Windows oppure, da un'altra
-origine dati del caso, quella con lo stesso nome di computer.
+Quale RAM va con quale installazione di Windows lo indica l'analista (vedi
+TriageCompromissione.py): la RAM nella stessa origine dati, quelle delle
+origini dati dello stesso host di Autopsy, oppure quella scelta nelle
+impostazioni dell'ingest. Il plugin non abbina piu' per nome: controlla la
+scelta con gli artefatti che legge gia' (build, nome, avvio, SID della
+macchina, ora dell'acquisizione) e, se qualcosa la contraddice, lo dice con
+un avviso; se la contraddice l'identita' (build, avvio o SID), gli indizi di
+quella RAM restano nel report ma non contano per il verdetto. Anche l'output
+di Volatility si controlla: righe e SHA-256 contro il manifesto, e quanto e'
+credibile per un Windows acceso (decine di processi, centinaia di servizi...).
 """
 
 import calendar
+import hashlib
 import json
 import re
 
@@ -40,13 +47,15 @@ import tc_regole as R
 import tc_eventi
 import tc_c_registro
 from tc_base import testo_orario as T, pulito, ERRORI
-from tc_lingua import tr
+from tc_lingua import tr, N_
 
 NOME_MANIFESTO = u'compromise-triage-memory.json'
 FORMATO = u'windows-compromise-triage/memory'
 VERSIONE_FORMATO = 1
 MASSIMO_FILE = 512 * 1024 * 1024        # un output piu' grande non si legge: Autopsy finirebbe la memoria
 MASSIMO_RIGHE = 300000
+# La versione di Volatility 3 con cui il plugin e' provato (la stessa del raccoglitore)
+VOLATILITY_PROVATO = u'2.28.2'
 
 # Le chiavi del manifesto, i plugin che le producono e i controlli che ne
 # dipendono (per dire cosa resta incompleto se un plugin non e' riuscito)
@@ -92,6 +101,13 @@ _RX_UTENTE_DI_SISTEMA = re.compile(u'(^|[\\\\/])(system|local service|network se
 # alla 2.11 scrivono il motivo al posto della riga)
 _RX_RIGA_ILLEGGIBILE = re.compile(u'^(process \\d+: )?required memory at 0x[0-9a-f]+ is', re.I)
 _RX_ORA = re.compile(u'^(\\d{4})-(\\d\\d)-(\\d\\d)[T ](\\d\\d):(\\d\\d):(\\d\\d)(?:\\.\\d+)?\\s*(Z|[+-]\\d\\d:?\\d\\d)?$')
+# Come e' stata indicata una RAM (Memoria.modo)
+STESSA_ORIGINE = u'stessa origine'
+STESSO_HOST = u'stesso host'
+INDICATA = u'indicata'
+ALTRO_HOST = u'altro host'        # non indicata: si legge solo per dire che c'e'
+# I processi che un Windows acceso ha sempre
+_ESSENZIALI = (u'smss.exe', u'csrss.exe', u'wininit.exe', u'services.exe', u'lsass.exe')
 _STATI_ATTIVI = (u'ESTABLISHED', u'SYN_SENT', u'SYN_RCVD', u'CLOSE_WAIT', u'FIN_WAIT1', u'FIN_WAIT2', u'CLOSING',
                  u'LAST_ACK', u'TIME_WAIT', u'CLOSED', u'DELETE_TCB')
 
@@ -107,6 +123,17 @@ def _testo(valore):
     if isinstance(valore, unicode):
         return pulito(valore).strip()
     return pulito(unicode(valore)).strip()
+
+
+def _tupla(versione):
+    """'2.28.2' -> (2, 28, 2); () se non e' una versione."""
+    numeri = []
+    for parte in versione.split(u'.'):
+        cifre = u''.join([c for c in parte if c.isdigit()])
+        if not cifre:
+            return ()
+        numeri.append(int(cifre))
+    return tuple(numeri)
 
 
 def _intero(valore, predefinito=None):
@@ -193,16 +220,22 @@ class Memoria(object):
     """Una cartella prodotta da collect_memory.py: il manifesto e gli output
     dei plugin di Volatility."""
 
-    def __init__(self, origine, manifesto, nome_origine=u'', stessa_origine=True):
+    def __init__(self, origine, manifesto, nome_origine=u'', stessa_origine=True, modo=u''):
         self.origine = origine
         self.manifesto = manifesto
         self.nome_origine = nome_origine or u''
         self.stessa_origine = stessa_origine
+        self.modo = modo or (STESSA_ORIGINE if stessa_origine else STESSO_HOST)     # chi l'ha indicata
         self.letta = False
         self.errore = u''           # perche' la cartella non si puo' usare
         self.dati = {}
         self.voci = {}              # chiave -> voce del manifesto con esito 'ok'
-        self.problemi = {}          # chiave -> esito ('failed', 'timeout', 'mancante', 'illeggibile')
+        self.problemi = {}          # chiave -> esito ('failed', 'timeout', 'mancante', 'illeggibile', 'non corrisponde')
+        self.errori = {}            # chiave -> il motivo del fallimento scritto nel manifesto
+        self.ripieghi = {}          # chiave -> (plugin non riuscito, esito, motivo) sostituito da un altro (netscan -> netstat)
+        self.requisiti = False      # Volatility non ha riconosciuto il file (kernel o simboli mancanti)
+        self.completa = None        # il campo "complete" del manifesto
+        self.interrotta = False
         self.computer = u''
         self.ora = 0.0              # ora di sistema nella RAM (windows.info)
         self.immagine = u''
@@ -249,15 +282,26 @@ class Memoria(object):
         self.computer = _testo(ospite.get(u'computer_name'))
         self.ora = ora_da_iso(_testo(ospite.get(u'system_time')))
         plugin = self.dati.get(u'plugins') if isinstance(self.dati.get(u'plugins'), list) else []
+        self.completa = self.dati.get(u'complete') if isinstance(self.dati.get(u'complete'), bool) else None
+        self.interrotta = bool(self.dati.get(u'interrupted'))
         for voce in plugin:
             if not isinstance(voce, dict):
                 continue
             chiave = _testo(voce.get(u'key'))
+            errore = _testo(voce.get(u'error'))
+            if u'Unsatisfied requirement' in errore:
+                self.requisiti = True
             if voce.get(u'status') == u'ok' and voce.get(u'file') and chiave not in self.voci:
+                if chiave in self.problemi:
+                    # un plugin non e' riuscito e ne e' stato usato un altro al suo posto
+                    self.ripieghi[chiave] = (self.errori.get(chiave + u'#plugin', u''), self.problemi[chiave],
+                                             self.errori.get(chiave, u''))
                 self.voci[chiave] = voce
                 self.problemi.pop(chiave, None)
             elif chiave not in self.voci:
                 self.problemi[chiave] = _testo(voce.get(u'status')) or u'failed'
+                self.errori[chiave] = errore
+                self.errori[chiave + u'#plugin'] = _testo(voce.get(u'plugin'))
         for chiave, _, _ in CHIAVI:
             if chiave not in self.voci and chiave not in self.problemi:
                 self.problemi[chiave] = u'mancante'
@@ -304,9 +348,17 @@ class Memoria(object):
                     contenuto = json.loads(dati.decode('utf-8', 'replace'))
                     if isinstance(contenuto, list):
                         righe = _piatte(contenuto, [])
-                        if len(righe) > MASSIMO_RIGHE:
-                            righe = righe[:MASSIMO_RIGHE]
-                        self._elementi[chiave] = e
+                        # l'output deve essere quello che il raccoglitore ha scritto: stesse righe, stesso SHA-256
+                        atteso = _testo(voce.get(u'sha256')).lower()
+                        quante = _intero(voce.get(u'rows'))
+                        if (atteso and hashlib.sha256(dati).hexdigest() != atteso) or \
+                                (quante is not None and quante != len(righe)):
+                            self.problemi[chiave] = u'non corrisponde'
+                            righe = None
+                        else:
+                            if len(righe) > MASSIMO_RIGHE:
+                                righe = righe[:MASSIMO_RIGHE]
+                            self._elementi[chiave] = e
                     else:
                         self.problemi[chiave] = u'illeggibile'
                 except ERRORI:
@@ -340,61 +392,107 @@ class Memoria(object):
 # L'analisi
 # --------------------------------------------------------------------------
 
+def _chi(m):
+    """Chi ha indicato la RAM, in parole."""
+    if m.modo == INDICATA:
+        return tr(u'scelta nelle impostazioni dell\'ingest')
+    if m.modo == STESSO_HOST:
+        return tr(u'origine dati \u00ab%s\u00bb dello stesso host di Autopsy') % m.nome_origine
+    if m.modo == ALTRO_HOST:
+        return tr(u'origine dati \u00ab%s\u00bb di un altro host') % m.nome_origine
+    return tr(u'nella stessa origine dati')
+
+
 def analizza(t):
-    """Il passo del triage: sceglie le RAM di questa installazione di Windows
-    e le analizza. Senza RAM non fa nulla (i controlli 3-7 restano non
-    verificabili)."""
+    """Il passo del triage: le RAM indicate per questa installazione di Windows
+    (vedi TriageCompromissione._memorie), controllate e analizzate. Senza RAM
+    non fa nulla: i controlli 3-7 restano non verificabili."""
     candidate = getattr(t, 'memorie', None) or []
     if not candidate:
         return
-    computer = (t.contesto.get('computer') or u'').strip()
-    scelte = []
-    for m in candidate:
+    indicate = [m for m in candidate if m.modo != ALTRO_HOST]
+    usabili = []
+    for m in indicate:
         if not m.leggi():
-            if m.stessa_origine:
-                t.avviso(tr(u'RAM: i risultati di Volatility in %s non si possono usare: %s. I controlli sui dati '
-                            u'volatili non sono stati fatti.') % (m.cartella(), m.errore))
+            t.avviso(tr(u'RAM %s: i risultati di Volatility in %s non si possono usare: %s. I controlli sui dati volatili '
+                        u'non sono stati fatti.') % (_chi(m), m.cartella(), m.errore))
             continue
-        nome = m.computer.lower()
-        if t.radice.piatta:
-            # Un'origine senza Windows: la RAM che contiene e', da sola, la
-            # cosa da analizzare. Se contiene le RAM di piu' computer si
-            # analizza quella del primo: mescolarle darebbe un verdetto che
-            # non riguarda nessuna macchina.
-            if computer and nome and nome != computer.lower():
-                if m.stessa_origine:
-                    t.nota(tr(u'Nell\'origine dati ci sono i risultati di Volatility di un altro computer (%s, in %s): '
-                              u'non sono stati usati per %s.') % (m.computer, m.cartella(), computer))
-                continue
-            if m.stessa_origine or (computer and nome == computer.lower()):
-                scelte.append(m)
-                if not computer and m.computer:
-                    computer = m.computer
-            continue
-        if computer and nome:
-            if nome == computer.lower():
-                scelte.append(m)
-                if not m.stessa_origine:
-                    t.nota(tr(u'La RAM viene da un\'altra origine dati del caso (\u00ab%s\u00bb, %s): \u00e8 stata usata '
-                              u'perch\u00e9 il nome del computer \u00e8 lo stesso (%s).') % (m.nome_origine, m.cartella(), m.computer))
-            elif m.stessa_origine:
-                t.nota(tr(u'Nell\'origine dati ci sono i risultati di Volatility di un altro computer (%s, in %s): non sono '
-                          u'stati usati per %s.') % (m.computer, m.cartella(), computer))
-            continue
-        if m.stessa_origine and t.radice.unica:
-            scelte.append(m)
-            t.nota(tr(u'I risultati di Volatility in %s sono stati usati perch\u00e9 stanno nella stessa origine dati, ma '
-                      u'il nome del computer non si \u00e8 potuto confrontare con quello del registro.') % m.cartella())
+        usabili.append(m)
+    installazioni = t.contesto.get('installazioni_origine', 1)
+    if usabili and installazioni > 1 and not t.radice.piatta:
+        # una RAM va a una sola installazione: con piu' installazioni nell'origine non si sa a quale
+        for m in usabili:
+            t.avviso(tr(u'La RAM %s (%s) \u00e8 indicata per un\'origine dati con %d installazioni di Windows: non si sa '
+                        u'a quale appartiene e non \u00e8 stata usata per nessuna. Per usarla, metti l\'installazione '
+                        u'giusta in un\'origine dati a s\u00e9.') % (m.etichetta(), m.cartella(), installazioni))
+            m.scarta()
+        usabili = []
+    if t.radice.piatta and len(usabili) > 1:
+        # un'origine senza Windows con le RAM di piu' computer: mescolarle darebbe
+        # un verdetto che non riguarda nessuna macchina, si analizza la prima
+        primo = usabili[0].computer.lower()
+        tenute = [m for m in usabili if m.computer.lower() == primo]
+        for m in usabili:
+            if m not in tenute:
+                t.nota(tr(u'Nell\'origine dati ci sono anche i risultati di Volatility di un altro computer (%s, in %s): '
+                          u'non sono stati usati, perch\u00e9 mescolarli darebbe un verdetto che non riguarda nessuna '
+                          u'macchina.') % (m.computer or u'?', m.cartella()))
+                m.scarta()
+        usabili = tenute
     for m in candidate:
-        if m not in scelte:
-            m.scarta()      # le righe lette per riconoscerla (envars) non servono piu'
-    for m in scelte:
-        if not t.contesto.get('computer') and m.computer:
-            t.contesto['computer'] = m.computer
+        if m.modo == ALTRO_HOST:
+            _altra(t, m)
+    for m in usabili:
         try:
             _analizza_una(t, m)
         finally:
+            t.ram_corrente = None
             m.scarta()
+
+
+def _altra(t, m):
+    """Una RAM di un'origine dati di un altro host: non si usa (l'abbinamento lo
+    indica l'analista), ma se e' dello stesso computer lo si dice."""
+    try:
+        if not m.leggi() or not m.computer:
+            return
+        if m.computer.lower() in nomi_macchina(t):
+            t.nota(tr(u'Nell\'origine dati \u00ab%s\u00bb, di un altro host di Autopsy, c\'\u00e8 una RAM con lo stesso nome '
+                      u'di computer (%s, in %s): non \u00e8 stata usata. Se \u00e8 di questa macchina, metti le due origini '
+                      u'dati nello stesso host oppure indicala nelle impostazioni dell\'ingest.')
+                   % (m.nome_origine, m.computer, m.cartella()))
+    finally:
+        m.scarta()
+
+
+def nomi_macchina(t):
+    """I nomi che l'installazione ha avuto: dall'hive SYSTEM e dai suoi registri eventi."""
+    nomi = set()
+    if t.contesto.get('computer'):
+        nomi.add(t.contesto['computer'].split(u'.')[0].lower())
+    rac = t.raccolta
+    if rac is not None:
+        nomi |= set(rac.nomi.keys())
+    return nomi
+
+
+_MOTIVI = {u'failed': N_(u'non riuscito'), u'timeout': N_(u'fermato dopo il tempo massimo'), u'mancante': N_(u'non eseguito'),
+           u'file mancante': N_(u'file non trovato'), u'illeggibile': N_(u'output illeggibile'),
+           u'troppo grande': N_(u'output troppo grande'),
+           u'non corrisponde': N_(u'output diverso da quello registrato nel manifesto (righe o SHA-256)')}
+
+
+def _motivo(m, chiave, stato=None, errore=None):
+    """Perche' un plugin non ha dato risultati, con il messaggio del manifesto."""
+    stato = stato if stato is not None else m.problemi.get(chiave)
+    testo = tr(_MOTIVI.get(stato, _MOTIVI[u'failed']))
+    errore = m.errori.get(chiave, u'') if errore is None else errore
+    if errore.startswith(u'not available in this Volatility'):
+        # il raccoglitore 1.3 lo scrive quando il Volatility usato non ha il plugin (o non riesce a caricarlo)
+        return tr(u'non disponibile nel Volatility usato (il plugin manca o non si carica)')
+    if errore and stato not in (u'mancante', u'file mancante', u'illeggibile', u'troppo grande', u'non corrisponde'):
+        testo += u': ' + errore[:160]
+    return testo
 
 
 def _analizza_una(t, m):
@@ -405,48 +503,267 @@ def _analizza_una(t, m):
     info = {'immagine': etichetta, 'sha256': _testo(immagine.get(u'sha256')),
             'dimensione': _intero(immagine.get(u'size'), 0) or 0, 'ora': m.ora, 'computer': m.computer,
             'volatility': _testo(volatility.get(u'version')), 'cartella': m.cartella(),
-            'origine': u'' if m.stessa_origine else m.nome_origine, 'totale': len(CHIAVI)}
+            'origine': u'' if m.stessa_origine else m.nome_origine, 'totale': len(CHIAVI), 'riusciti': 0,
+            'modo': m.modo, 'chi': _chi(m), 'controlli': [], 'conta': True, 'limitata': False, 'anomalie': [],
+            'utenti': {}}
     t.contesto.setdefault('memorie', []).append(info)
+    if _tupla(info['volatility']) and _tupla(info['volatility']) < _tupla(VOLATILITY_PROVATO):
+        t.nota(tr(u'RAM %s: raccolta con Volatility %s, pi\u00f9 vecchio della versione provata (%s): alcuni plugin '
+                  u'possono dare meno dati.') % (etichetta, info['volatility'], VOLATILITY_PROVATO))
+    if not m.voci:
+        # nessun plugin riuscito: se Volatility non ha riconosciuto il file non lo si chiama RAM
+        motivi = u'; '.join([u'%s (%s)' % (m.plugin(c), _motivo(m, c)) for c, _, _ in CHIAVI if c in m.problemi][:3])
+        if m.requisiti:
+            t.avviso(tr(u'%s: Volatility non l\'ha riconosciuto (%s). Non \u00e8 un\'immagine della memoria di Windows, '
+                        u'oppure mancano i simboli del suo kernel. I controlli sui dati volatili non sono stati fatti.')
+                     % (etichetta, motivi))
+        else:
+            t.avviso(tr(u'RAM %s: nessun plugin di Volatility ha dato risultati (%s). I controlli sui dati volatili non '
+                        u'sono stati fatti.') % (etichetta, motivi))
+        for n in (3, 4, 5, 7):
+            t.esito(n, 'non verificabile', tr(u'nessun risultato di Volatility in %s') % m.cartella(), True)
+        return
     for r in m.righe(u'info') or []:
         variabile = _testo(r.get(u'Variable'))
         if variabile == u'Major/Minor':
             info['build'] = _testo(r.get(u'Value')).split(u'.')[-1]
         elif variabile == u'NtProductType':
             info['tipo'] = _testo(r.get(u'Value'))
+    if m.computer and not t.contesto.get('computer'):
+        # il nome dell'installazione non viene mai dalla RAM: questo serve solo a mostrarlo
+        t.contesto['computer_ram'] = m.computer
     if m.computer or m.ora:
         # senza registro (un'origine con la sola RAM) il contesto viene dalla RAM
         _fatto_se_manca(t, 1, tr(u'dalla RAM: nome del computer e ora dell\'acquisizione'))
+    t.ram_corrente = info
     processi = _processi(t, m)
     _rete(t, m, processi)
     _sessioni(t, m)
-    _servizi(t, m)
+    _servizi(t, m, processi)
     t.esito(6, 'non verificabile', tr(u'Volatility 3 non ha un plugin per la cache DNS: serve il triage dal vivo'))
-    # i plugin senza risultati e i controlli che ne risentono
+    for p in processi:
+        if p.utente and p.in_lista and not p.uscito:
+            chi = p.utente.split(u'\\')[-1].split(u'/')[-1].lower()
+            elenco = info['utenti'].setdefault(chi, [])
+            if len(elenco) < 20:
+                elenco.append((p.pid, p.mostrato()[:200], p.creato))
+    _compatibilita(t, m, info, processi)
+    _plausibilita(t, m, info, processi)
+    # i plugin senza risultati, il motivo e i controlli che ne risentono
     info['riusciti'] = len([c for c, _, _ in CHIAVI if c in m.voci])
     mancanti = [c for c, _, _ in CHIAVI if c not in m.voci]
     if mancanti:
-        motivi = {u'failed': tr(u'non riuscito'), u'timeout': tr(u'fermato dopo il tempo massimo'),
-                  u'mancante': tr(u'non eseguito'), u'file mancante': tr(u'file non trovato'),
-                  u'illeggibile': tr(u'output illeggibile'), u'troppo grande': tr(u'output troppo grande')}
-        nomi = [u'%s (%s)' % (m.plugin(c), motivi.get(m.problemi.get(c), m.problemi.get(c) or motivi[u'failed']))
-                for c in mancanti]
+        nomi = [u'%s (%s)' % (m.plugin(c), _motivo(m, c)) for c in mancanti]
         toccati = []
         for c, _, controlli in CHIAVI:
-            if c in mancanti:
-                for n in controlli:
-                    if n not in toccati:
-                        toccati.append(n)
-        if (17 in toccati or 29 in toccati) and t.contesto.get('servizi_registro') is not None:
-            # i servizi li ha gia' controllati il registro
-            toccati = [n for n in toccati if n not in (17, 29)]
+            if c not in mancanti:
+                continue
+            for n in controlli:
+                if n not in toccati:
+                    toccati.append(n)
+                if n in (17, 29):
+                    # con il registro i servizi installati si controllano, ma quelli rimasti
+                    # solo in memoria (tolti dal registro dopo l'uso, come fa smbexec) no
+                    t.parziale(n, m.plugin(c), tr(u'i servizi rimasti solo in memoria non si controllano'))
+                elif t.esiti.get(n, ('',))[0] == 'fatto':
+                    t.parziale(n, m.plugin(c), _motivo(m, c))
         if toccati:
             t.avviso(tr(u'RAM %s, plugin di Volatility senza risultati: %s. Controlli incompleti: %s.')
                      % (etichetta, u', '.join(nomi), u', '.join([unicode(n) for n in sorted(toccati)])))
         else:
-            t.nota(tr(u'RAM %s, plugin di Volatility senza risultati: %s. I controlli non ne risentono.')
-                   % (etichetta, u', '.join(nomi)))
-    if dati.get(u'interrupted'):
+            t.nota(tr(u'RAM %s, plugin di Volatility senza risultati: %s. I controlli non ne risentono; i controlli '
+                      u'sull\'abbinamento della RAM che ne dipendono non si possono fare.') % (etichetta, u', '.join(nomi)))
+    for c, (plugin, stato, errore) in sorted(m.ripieghi.items()):
+        if c != u'network' or c not in m.voci:
+            continue
+        motivo = _motivo(m, c, stato, errore)
+        for n in (5, 7):
+            t.parziale(n, plugin or u'windows.netscan', tr(u'%s; usato %s, che non vede le connessioni gi\u00e0 chiuse')
+                       % (motivo, m.plugin(c)))
+        t.avviso(tr(u'RAM %s: %s %s; le connessioni vengono da %s, che non vede quelle gi\u00e0 chiuse. I controlli 5 e 7 '
+                    u'sono parziali.') % (etichetta, plugin or u'windows.netscan', motivo, m.plugin(c)))
+    if m.interrotta:
         t.nota(tr(u'RAM %s: la raccolta con Volatility \u00e8 stata interrotta prima della fine.') % etichetta)
+    elif m.completa is False:
+        t.avviso(tr(u'RAM %s: il manifesto non dichiara completa la raccolta con Volatility (fermata prima della fine).')
+                 % etichetta)
+    t.ram_corrente = None
+
+
+# --------------------------------------------------------------------------
+# L'abbinamento con il disco e la credibilita' dell'output
+# --------------------------------------------------------------------------
+
+# build di Windows con lo stesso kernel (Volatility vede quello): 19041 e' Windows 10 2004-22H2
+_FAMIGLIE_BUILD = {19042: 19041, 19043: 19041, 19044: 19041, 19045: 19041, 18363: 18362, 22631: 22621, 26200: 26100}
+CONCORDA = N_(u'concorda')
+CONTRADDICE = N_(u'contraddice')
+NON_VERIFICABILE = N_(u'non verificabile')
+
+
+def famiglia_build(build):
+    return _FAMIGLIE_BUILD.get(build, build)
+
+
+def _prefisso_sid(sid):
+    """La parte che identifica la macchina o il dominio: S-1-5-21-a-b-c."""
+    parti = (sid or u'').strip().upper().split(u'-')
+    if len(parti) >= 8 and parti[:4] == [u'S', u'1', u'5', u'21']:
+        return u'-'.join(parti[:7])
+    return u''
+
+
+def _compatibilita(t, m, info, processi):
+    """Controlla l'abbinamento indicato dall'analista con quello che il plugin
+    legge gia' sul disco. Non decide: avvisa. Se contraddice l'identita'
+    (build, avvio, SID della macchina) gli indizi della RAM non contano."""
+    rac = t.raccolta
+    controlli = []
+    # 1. la build, per famiglia di kernel: quella dell'ultimo avvio nel registro System, o del registro
+    avvii = sorted(rac.avvii, key=lambda a: a['ora']) if rac is not None else []
+    disco = 0
+    for a in reversed(avvii):
+        if a.get('build') and a['build'] > 0:
+            disco = a['build']
+            break
+    disco = disco or _intero(t.contesto.get('build'), 0) or 0
+    ram = _intero(info.get('build'), 0) or 0
+    if ram and disco:
+        esito = CONCORDA if famiglia_build(ram) == famiglia_build(disco) else CONTRADDICE
+        controlli.append((N_(u'build di Windows'), esito, tr(u'RAM %d, disco %d') % (ram, disco), True))
+    else:
+        controlli.append((N_(u'build di Windows'), NON_VERIFICABILE, tr(u'manca la build della RAM o del disco'), True))
+    # 2. il nome del computer, contro tutti i nomi che l'installazione ha avuto
+    nomi = nomi_macchina(t)
+    if m.computer and nomi:
+        esito = CONCORDA if m.computer.lower() in nomi else CONTRADDICE
+        controlli.append((N_(u'nome del computer'), esito, tr(u'RAM %s, disco %s') % (m.computer, u', '.join(sorted(nomi))[:200]),
+                          False))
+    else:
+        controlli.append((N_(u'nome del computer'), NON_VERIFICABILE, tr(u'manca il nome nella RAM o sul disco'), False))
+    # 3. l'avvio di Windows: il processo System della RAM contro gli avvii del registro System
+    avvio = min([p.creato for p in processi if p.pid == 4 and p.creato] or [0])
+    sistema = rac.copertura.get(u'system.evtx') if rac is not None else None
+    if avvio and sistema and sistema[0] and sistema[0] <= avvio <= (sistema[1] or 0) + 60:
+        vicini = [a for a in avvii if abs(a['ora'] - avvio) <= 120]
+        esito = CONCORDA if vicini else CONTRADDICE
+        controlli.append((N_(u'avvio di Windows'), esito,
+                          (tr(u'avvio della RAM %s UTC, nel registro System alle %s UTC') % (T(avvio), T(vicini[0]['ora'])))
+                          if vicini else (tr(u'avvio della RAM %s UTC: nessun avvio entro 2 minuti nel registro System, che '
+                                             u'copre quel momento') % T(avvio)), True))
+    else:
+        controlli.append((N_(u'avvio di Windows'), NON_VERIFICABILE,
+                          tr(u'il registro System non copre l\'avvio della RAM, o manca uno dei due'), True))
+    # 4. il SID della macchina (o del dominio): processi della RAM contro SAM, profili ed eventi sugli account
+    del_disco = set([_prefisso_sid(sid) for sid in t.profili.keys()])
+    if t.contesto.get('sid_macchina'):
+        del_disco.add(_prefisso_sid(t.contesto['sid_macchina'] + u'-500'))      # quello del SAM non ha il RID
+    if rac is not None:
+        for a in rac.account:
+            for sid in (a.get('sid_bersaglio'), a.get('membro')):
+                if _prefisso_sid(sid):
+                    del_disco.add(_prefisso_sid(sid))
+    del_disco.discard(u'')
+    della_ram = set([_prefisso_sid(_testo(r.get(u'SID'))) for r in (m.righe(u'getsids') or [])])
+    della_ram.discard(u'')
+    if del_disco and della_ram:
+        esito = CONCORDA if del_disco & della_ram else CONTRADDICE
+        controlli.append((N_(u'SID della macchina'), esito, tr(u'RAM %s, disco %s')
+                          % (u', '.join(sorted(della_ram))[:160], u', '.join(sorted(del_disco))[:160]), True))
+    else:
+        controlli.append((N_(u'SID della macchina'), NON_VERIFICABILE, tr(u'mancano i SID della RAM o del disco'), True))
+    # 5. l'ora dell'acquisizione contro il periodo coperto dai registri eventi
+    periodo = []
+    if rac is not None:
+        for nome in (u'security.evtx', u'system.evtx'):
+            v = rac.copertura.get(nome)
+            if v and v[0] and v[1]:
+                periodo.append((v[0], v[1]))
+    if m.ora and periodo:
+        primo, ultimo = min([x[0] for x in periodo]), max([x[1] for x in periodo])
+        esito = CONCORDA if primo - 86400 <= m.ora <= ultimo + 86400 else CONTRADDICE
+        controlli.append((N_(u'ora dell\'acquisizione'), esito, tr(u'RAM %s UTC, registri dal %s al %s UTC')
+                          % (T(m.ora), T(primo), T(ultimo)), False))
+    else:
+        controlli.append((N_(u'ora dell\'acquisizione'), NON_VERIFICABILE, tr(u'manca l\'ora della RAM o il periodo dei registri'),
+                          False))
+    info['controlli'] = controlli
+    contrari = [c for c in controlli if c[1] == CONTRADDICE]
+    testo = u'; '.join([u'%s: %s (%s)' % (tr(c[0]), tr(c[1]), c[2]) for c in contrari])
+    if [c for c in contrari if c[3]]:
+        info['conta'] = False
+        t.avviso(tr(u'La RAM %s (%s) non sembra di questa installazione di Windows: %s. I suoi indizi restano nel report, '
+                    u'segnati, ma non contano per il verdetto finch\u00e9 l\'abbinamento non viene corretto.')
+                 % (info['immagine'], info['chi'], testo))
+    elif contrari:
+        t.avviso(tr(u'Abbinamento della RAM %s (%s) da verificare: %s. I suoi indizi contano per il verdetto.')
+                 % (info['immagine'], info['chi'], testo))
+
+
+def _plausibilita(t, m, info, processi):
+    """Un Windows acceso ha decine di processi, tra cui quelli di sistema,
+    righe di comando leggibili, porte in ascolto, centinaia di servizi e di
+    variabili d'ambiente. Sotto
+    queste soglie, o se la scansione trova molti piu' processi dell'elenco,
+    l'output e' anomalo: lo si dice e gli indizi della RAM non portano il
+    verdetto oltre "da verificare". Le stesse soglie le usa il raccoglitore."""
+    anomalie = []
+    if m.righe(u'pslist') is not None:
+        attivi = [p for p in processi if p.in_lista and not p.uscito]
+        if len(attivi) < 20:
+            anomalie.append(tr(u'solo %d processi attivi in pslist') % len(attivi))
+        presenti = set([p.base for p in attivi] + [p.nome.lower() for p in attivi])
+        mancano = [x for x in _ESSENZIALI if x not in presenti]
+        if not [p for p in attivi if p.pid == 4]:
+            mancano.insert(0, u'System')
+        if mancano:
+            anomalie.append(tr(u'mancano processi che un Windows acceso ha sempre: %s') % u', '.join(mancano))
+        if m.righe(u'psscan') is not None:
+            avvio = min([p.creato for p in processi if p.pid == 4 and p.creato] or [0])
+            nascosti = [p for p in processi if not p.in_lista and not p.uscito and p.thread > 0
+                        and not (avvio and p.creato and p.creato < avvio - 60)]
+            if len(nascosti) > max(5, len(attivi) // 10):
+                anomalie.append(tr(u'psscan trova %d processi attivi che pslist non elenca') % len(nascosti))
+    comandi = m.righe(u'cmdline')
+    if comandi and not [r for r in comandi if _riga_di_comando(r.get(u'Args'))]:
+        anomalie.append(tr(u'nessuna riga di comando leggibile in cmdline (processi: %d)') % len(comandi))
+    rete = m.righe(u'network')
+    if rete is not None and not [r for r in rete if _testo(r.get(u'State')).upper() == u'LISTENING']:
+        anomalie.append(tr(u'nessuna porta in ascolto in %s') % m.plugin(u'network'))
+    servizi = m.righe(u'svcscan')
+    if servizi is not None and len(servizi) < 100:
+        anomalie.append(tr(u'solo %d servizi in svcscan') % len(servizi))
+    variabili = m.righe(u'envars')
+    if variabili is not None and len(variabili) < 100:
+        anomalie.append(tr(u'solo %d variabili d\'ambiente in envars') % len(variabili))
+    if anomalie:
+        info['anomalie'] = anomalie
+        info['limitata'] = True
+        t.avviso(tr(u'RAM %s: output anomalo o forse incompleto (%s). Non si distingue fra un problema di acquisizione, '
+                    u'di estrazione o un occultamento. Gli indizi della RAM restano nel report, ma non portano il '
+                    u'verdetto oltre \u00abda verificare\u00bb.') % (info['immagine'], u'; '.join(anomalie)))
+
+
+def account_in_memoria(t, account, elemento=None):
+    """Regola della RAM con il disco: un processo attivo nella RAM con l'utente
+    di un account che i registri eventi mostrano appena creato o aggiunto agli
+    amministratori. account: {nome in minuscolo: testo che lo descrive}."""
+    for info in t.contesto.get('memorie') or []:
+        for nome, descrizione in sorted(account.items()):
+            processi = info.get('utenti', {}).get(nome)
+            if not processi:
+                continue
+            t.ram_corrente = info
+            try:
+                t.segnala(4, R.DA_CONFERMARE, R.F_ACCOUNT,
+                          tr(u'Processi attivi nella RAM con l\'utente %s, %s') % (nome, descrizione),
+                          tr(u'%s\nFonte: RAM %s') % (u'\n'.join([tr(u'PID %d: %s (avviato %s UTC)') % (pid, testo, T(ora))
+                                                                    for pid, testo, ora in processi[:10]]),
+                                                         info['immagine']),
+                          min([x[2] for x in processi if x[2]] or [0]), elemento, True,
+                          oggetti=(R.chiave(u'account', nome),))
+            finally:
+                t.ram_corrente = None
 
 
 class _Processo(object):
@@ -610,7 +927,7 @@ def _processi(t, m):
     """Controllo 4: processi, righe di comando e processi padre."""
     elenco, lista_ok, scansione_ok = _elenco_processi(m)
     if not elenco:
-        t.esito(4, 'non verificabile', tr(u'la RAM c\'\u00e8, ma Volatility non ha prodotto l\'elenco dei processi'))
+        t.esito(4, 'non verificabile', tr(u'la RAM c\'\u00e8, ma Volatility non ha prodotto l\'elenco dei processi'), True)
         return elenco
     t.fatto(4)
     etichetta = m.etichetta()
@@ -635,11 +952,25 @@ def _processi(t, m):
             p.peso = peso
             p.famiglia = famiglia
 
+    identita = m.dati.get(u'image', {}).get(u'sha256') if isinstance(m.dati.get(u'image'), dict) else u''
+    identita = identita or m.cartella()
+
+    def oggetti(*processi):
+        # il processo (in questa RAM), la sua riga di comando e il programma, se non e' di Windows
+        chiavi = []
+        for p in processi:
+            chiavi.append(R.chiave(u'processo', u'%s:%d:%d' % (identita, p.pid, int(p.creato))))
+            chiavi.extend(R.oggetti_comando(p.riga, p.immagine if u'\\' in p.immagine else u''))
+        return tuple(chiavi)
+
     # le regole di sempre (come per gli eventi 4688 e Sysmon), un segnale per programma e motivo
     gruppi = {}
     ordine = []
     for p in elenco:
-        for peso, famiglia, cosa, per_riga, chiaro in tc_eventi.giudica_processo(p.immagine, p.base, p.riga):
+        padre = padre_di(p)
+        riscontri = tc_eventi.giudica_processo(p.immagine, p.base, p.riga) + \
+            tc_eventi.giudica_padre(padre.immagine if padre is not None else u'', p.base, p.riga)
+        for peso, famiglia, cosa, per_riga, chiaro in riscontri:
             chiave = (p.immagine.lower(), p.riga if per_riga else u'', cosa)
             g = gruppi.get(chiave)
             if g is None:
@@ -662,7 +993,7 @@ def _processi(t, m):
         if g['chiaro']:
             dettagli += tr(u'\nComando in chiaro: ') + u' '.join(g['chiaro'].split())[:1200]
         t.segnala(4, g['peso'], g['famiglia'], u'%s: %s (PID %s)' % (cosa[:1].upper() + cosa[1:], mostrato[:160], pid),
-                  dettagli, primo.creato, elemento)
+                  dettagli, primo.creato, elemento, oggetti=oggetti(*g['processi'][:20]))
     # processi nascosti: nella scansione della memoria ma non nell'elenco dei processi attivi
     if scansione_ok:
         avvio = min([p.creato for p in per_pid.get(4, []) if p.creato] or [0])
@@ -671,10 +1002,12 @@ def _processi(t, m):
                 continue
             if avvio and p.creato and p.creato < avvio - 60:
                 continue        # di un avvio precedente di Windows, rimasto nella memoria
+            # una discordanza fra due fonti: puo' venire da un occultamento come da un'acquisizione
+            # o un'estrazione imperfetta, quindi da sola porta a "da verificare"
             t.segnala(4, R.DA_CONFERMARE, R.F_ANTIFORENSE,
                       tr(u'Processo nella memoria ma non nell\'elenco dei processi attivi, forse nascosto: %s (PID %d)')
                       % (p.mostrato()[:160], p.pid), _dettagli(p, padre_di(p), etichetta, fonti), p.creato,
-                      m.elemento(u'psscan'), True)
+                      m.elemento(u'psscan'), True, oggetti=oggetti(p), discordante=True)
             annota(p, R.DA_CONFERMARE, R.F_ANTIFORENSE)
     # processi di sistema con il padre sbagliato, o in piu' copie
     vivi = [p for p in elenco if p.in_lista and not p.uscito]
@@ -688,7 +1021,7 @@ def _processi(t, m):
         t.segnala(4, R.DA_CONFERMARE, R.F_ESECUZIONE,
                   tr(u'%s con un processo padre insolito: %s (PID %d) invece di %s')
                   % (p.base, padre.base, padre.pid, u', '.join(attesi)), _dettagli(p, padre, etichetta, fonti),
-                  p.creato, elemento, True)
+                  p.creato, elemento, True, oggetti=oggetti(p))
         annota(p, R.DA_CONFERMARE, R.F_ESECUZIONE)
     for nome in _UNICI:
         copie = [p for p in vivi if p.base == nome]
@@ -697,7 +1030,7 @@ def _processi(t, m):
                       tr(u'%d processi %s attivi nello stesso momento: di norma ce n\'\u00e8 uno solo (PID %s)')
                       % (len(copie), nome, u', '.join([unicode(p.pid) for p in copie[:10]])),
                       u'\n\n'.join([_dettagli(p, padre_di(p), etichetta, fonti) for p in copie[:5]]),
-                      copie[-1].creato, elemento, True)
+                      copie[-1].creato, elemento, True, oggetti=oggetti(*copie[:10]))
             for p in copie:
                 annota(p, R.DA_CONFERMARE, R.F_ESECUZIONE)
     # interpreti avviati da un programma per documenti o da un server web
@@ -710,7 +1043,7 @@ def _processi(t, m):
         t.segnala(4, R.DA_CONFERMARE, R.F_ESECUZIONE,
                   tr(u'%s avviato da %s (PID %d): un programma per documenti o un server web di norma non apre '
                      u'interpreti di comandi') % (p.base, padre.base, padre.pid),
-                  _dettagli(p, padre, etichetta, fonti), p.creato, elemento, True)
+                  _dettagli(p, padre, etichetta, fonti), p.creato, elemento, True, oggetti=oggetti(p, padre))
         annota(p, R.DA_CONFERMARE, R.F_ESECUZIONE)
     # la tabella: tutti i processi, in ordine di avvio
     righe = []
@@ -743,8 +1076,8 @@ def _rete(t, m, processi):
     righe_rete = m.righe(u'network')
     if righe_rete is None:
         motivo = tr(u'la RAM c\'\u00e8, ma Volatility non ha prodotto le connessioni (%s)') % m.plugin(u'network')
-        t.esito(5, 'non verificabile', motivo)
-        t.esito(7, 'non verificabile', motivo)
+        t.esito(5, 'non verificabile', motivo, True)
+        t.esito(7, 'non verificabile', motivo, True)
         return
     t.fatto(5)
     t.esito(7, 'fatto', tr(u'solo le connessioni sulla porta 445: le sessioni SMB richiedono il triage dal vivo'))
@@ -782,7 +1115,7 @@ def _rete(t, m, processi):
                               % (verso, p.mostrato()[:120], pid, stato),
                               tr(u'Locale %s - remoto %s - stato %s - creata %s (UTC)\nFonte: RAM %s, %s')
                               % (_indirizzo(locale, porta_l), verso, stato, T(creata) or u'-', etichetta, fonte),
-                              creata, elemento)
+                              creata, elemento, oggetti=(R.chiave(u'ip', remoto), _chiave_processo(m, p)))
                 elif nome in _SENZA_INTERNET:
                     peso = R.DA_CONFERMARE
                     t.segnala(5, peso, R.F_ESECUZIONE,
@@ -791,7 +1124,7 @@ def _rete(t, m, processi):
                               tr(u'Locale %s - remoto %s - stato %s - creata %s (UTC)\nFonte: RAM %s, %s')
                               % (_indirizzo(locale, porta_l), verso, stato, T(creata) or u'-', etichetta, fonte)
                               + (u'\n' + (tr(u'Riga di comando: %s') % p.riga[:1500]) if p is not None and p.riga else u''),
-                              creata, elemento, True)
+                              creata, elemento, True, oggetti=(R.chiave(u'ip', remoto), _chiave_processo(m, p)))
             if peso:
                 nota.append(R.NOME_PESO[peso])
         riga = [proto, _indirizzo(locale, porta_l), _indirizzo(remoto, porta_r) if remoto not in (u'*', u'') else remoto,
@@ -804,6 +1137,10 @@ def _rete(t, m, processi):
     righe.sort(key=lambda x: (x[0], -x[1]))
     nota = tr(u'Le connessioni trovate da %s: prima quelle verso indirizzi pubblici, poi le altre, poi le porte in '
               u'ascolto.') % fonte
+    if [r for r in righe if r[2][4].startswith(u'?')]:
+        nota += tr(u' \u00ab?\u00bb: Volatility non ha attribuito la connessione a un processo. Succede con le build di '
+                   u'Windows di cui conosce meno le strutture di rete (per esempio Windows 11 22H2 e 23H2) e con le '
+                   u'connessioni gi\u00e0 chiuse; non \u00e8 un indizio.')
     if len(righe) > 300:
         nota += tr(u' Sono mostrate le prime 300 di %d.') % len(righe)
     t.tabella(5, tr(u'Connessioni di rete nella RAM (%s)') % etichetta,
@@ -822,7 +1159,7 @@ def _sessioni(t, m):
     righe_s = m.righe(u'sessions')
     if righe_s is None:
         t.esito(3, 'non verificabile', tr(u'la RAM c\'\u00e8, ma Volatility non ha prodotto le sessioni (%s)')
-                % m.plugin(u'sessions'))
+                % m.plugin(u'sessions'), True)
         return
     t.fatto(3)
     etichetta = m.etichetta()
@@ -852,7 +1189,8 @@ def _sessioni(t, m):
                       % (u', '.join(s['utenti']), numero, u', '.join(remota)),
                       tr(u'Processi nella sessione: %d; il primo avviato il %s (UTC).\nFonte: RAM %s, %s')
                       % (s['processi'], T(s['primo']) or u'-', etichetta, m.plugin(u'sessions')),
-                      s['primo'], m.elemento(u'sessions'))
+                      s['primo'], m.elemento(u'sessions'),
+                      oggetti=tuple([R.chiave(u'account', u.split(u'/')[-1].split(u'\\')[-1]) for u in s['utenti'][:5]]))
         righe.append([unicode(numero), u', '.join(s['tipi']), u', '.join(s['utenti']), unicode(s['processi']), T(s['primo'])])
     t.tabella(3, tr(u'Sessioni nella RAM (%s)') % etichetta,
               [tr(u'Sessione'), tr(u'Tipo'), tr(u'Utenti'), tr(u'Processi'), tr(u'Primo processo (UTC)')], righe,
@@ -860,12 +1198,29 @@ def _sessioni(t, m):
                  u'RDP-Tcp#N per il Desktop remoto. Senza utente: sessione dei servizi.'))
 
 
-def _servizi(t, m):
+def _acquisizione_in_ram(processi, percorso):
+    """Il processo di uno strumento di acquisizione della memoria che gira
+    nella RAM dalla stessa cartella del driver, oppure None."""
+    cartella = R.percorso_normale(R.spezza_comando(percorso or u'')[0])
+    cartella = cartella[:cartella.rfind(u'\\')] if u'\\' in cartella else u''
+    for p in processi:
+        if p.in_lista and R.acquisizione(p.immagine) and cartella:
+            sua = R.percorso_normale(p.immagine)
+            if sua[:sua.rfind(u'\\')] == cartella:
+                return p
+    return None
+
+
+def _servizi(t, m, processi=()):
     """Controlli 17 e 29: i servizi che la RAM conosce e il registro no (un
     servizio tolto dopo l'uso, come fanno smbexec e simili). Se il registro
     non c'e' (origine con la sola RAM) si giudicano tutti."""
     righe_s = m.righe(u'svcscan')
     if righe_s is None:
+        if t.contesto.get('servizi_registro') is None:
+            motivo = tr(u'la RAM c\'\u00e8, ma Volatility non ha prodotto i servizi (%s)') % m.plugin(u'svcscan')
+            t.esito(17, 'non verificabile', motivo, True)
+            t.esito(29, 'non verificabile', motivo, True)
         return
     registro = t.contesto.get('servizi_registro')
     etichetta = m.etichetta()
@@ -883,9 +1238,16 @@ def _servizi(t, m):
         if percorso:
             peso, controllo, famiglia, motivi = tc_c_registro.giudica_servizio(nome, percorso)
             if peso and peso < R.DECISIVO and R.driver_forense(nome, percorso):
-                peso = R.INFORMATIVO
-                motivi.append(tr(u'driver di uno strumento di acquisizione forense: probabilmente lasciato da chi ha '
-                                 u'raccolto le prove'))
+                # il driver dello strumento che ha acquisito la memoria: lo e' davvero solo se lo
+                # strumento gira nella RAM dalla stessa cartella (un nome si copia)
+                strumento = _acquisizione_in_ram(processi, percorso)
+                if strumento is not None:
+                    peso = R.INFORMATIVO
+                    motivi.append(tr(u'driver di %s, lo strumento che ha acquisito la memoria (gira dalla stessa '
+                                     u'cartella, PID %d)') % (strumento.breve(), strumento.pid))
+                else:
+                    motivi.append(tr(u'ha il nome del driver di uno strumento di acquisizione della memoria, ma lo '
+                                     u'strumento non gira nella RAM dalla stessa cartella: il nome da solo non basta'))
         else:
             firma = R.firma_smbexec(nome, u'')
             peso, controllo, famiglia, motivi = (firma[0], 29, R.F_LATERALE, [firma[1]]) if firma else (0, 17, R.F_PERSISTENZA, [])
@@ -900,7 +1262,7 @@ def _servizi(t, m):
                       tr(u'%s\nStato: %s - avvio: %s - PID: %s\nFonte: RAM %s, %s')
                       % (percorso[:1500] or tr(u'(programma non leggibile nella RAM)'), stato, avvio,
                          u'-' if pid is None else unicode(pid), etichetta, m.plugin(u'svcscan')),
-                      0, elemento)
+                      0, elemento, oggetti=(R.chiave(u'servizio', nome), R.chiave_programma(percorso, True)))
         if peso or registro is not None:
             righe.append([nome, stato, avvio, u'-' if pid is None else unicode(pid), percorso[:300],
                           R.NOME_PESO.get(peso, u''), u'; '.join(motivi)])
@@ -912,6 +1274,13 @@ def _servizi(t, m):
         titolo = tr(u'Servizi nella RAM che non sono nel registro (%s)') % etichetta
     t.tabella(17, titolo, [tr(u'Servizio'), tr(u'Stato'), tr(u'Avvio'), u'PID', tr(u'Programma'), tr(u'Peso'), tr(u'Motivo')],
               righe[:200])
+
+
+def _chiave_processo(m, p):
+    if p is None:
+        return u''
+    identita = m.dati.get(u'image', {}).get(u'sha256') if isinstance(m.dati.get(u'image'), dict) else u''
+    return R.chiave(u'processo', u'%s:%d:%d' % (identita or m.cartella(), p.pid, int(p.creato)))
 
 
 def descrizione(info):

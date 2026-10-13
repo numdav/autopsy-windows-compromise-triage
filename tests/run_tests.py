@@ -42,6 +42,8 @@ TESTS = [
     ('test_tempi.py', [r'fallite 0\s*$']),
     ('test_lingua.py', [r'prove fallite 0\s*$']),
     ('test_memoria.py', [r'memoria: (\d+) prove, prove fallite 0\s*$']),
+    ('test_evtx.py', [r'evtx: prove riuscite \d+, prove fallite 0\s*$']),
+    ('test_verdetto.py', [r'verdetto: prove riuscite \d+, prove fallite 0\s*$']),
 ]
 
 

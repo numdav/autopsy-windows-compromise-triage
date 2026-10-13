@@ -241,8 +241,14 @@ prova('orologio riportato indietro: nota, riferimento all\'ultimo evento scritto
       repr(t.note)[:300])
 t = copertura({S: (base - 60 * G, base, 1000), Y: (base - 60 * G, base, 100)}, guasti={Y: (2, 3, 1)})
 a = con(t, u'Registri eventi danneggiati')
-prova('record persi o non decodificati e blocchi rovinati: avviso con i numeri',
-      len(a) == 1 and u'5 eventi non leggibili' in a[0] and u'1 blocchi rovinati' in a[0], repr(t.avvisi)[:300])
+prova('record persi e blocchi rovinati: avviso "danneggiati" con i numeri',
+      len(a) == 1 and u'3 eventi non leggibili' in a[0] and u'1 blocchi rovinati' in a[0], repr(t.avvisi)[:300])
+a = con(t, u'Eventi non decodificati')
+prova('record integri non decodificati: avviso a parte, che non dice "danneggiati"',
+      len(a) == 1 and u'System (2 su 103)' in a[0] and u'danneggiat' not in a[0], repr(t.avvisi)[:400])
+t = copertura({S: (base - 60 * G, base, 1000), Y: (base - 60 * G, base, 100)}, guasti={S: (7, 0, 0)})
+prova('solo record non decodificati: nessun avviso "danneggiati", uno "non decodificati"',
+      not con(t, u'danneggiat') and len(con(t, u'Eventi non decodificati')) == 1, repr(t.avvisi)[:400])
 
 # ---- testo_orario
 T = tc_base.testo_orario

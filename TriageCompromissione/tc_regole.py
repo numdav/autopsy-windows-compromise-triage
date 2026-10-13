@@ -445,6 +445,16 @@ RICOGNIZIONE_FORTE = set([u'whoami.exe', u'nltest.exe', u'net1.exe', u'quser.exe
                           u'klist.exe', u'cmdkey.exe', u'nbtstat.exe', u'dsget.exe', u'csvde.exe', u'ldifde.exe',
                           u'adfind.exe', u'systeminfo.exe', u'qprocess.exe'])
 
+# Processi di sistema che non avviano mai interpreti di comandi: se lo fanno,
+# dentro c'e' codice estraneo
+PADRI_MAI_INTERPRETI = set([u'lsass.exe', u'wininit.exe'])
+SHELL = set([u'cmd.exe', u'powershell.exe', u'pwsh.exe'])
+# strumenti di rete a doppio uso che possono dare una shell a distanza
+STRUMENTI_DI_RETE = set([u'nc.exe', u'nc64.exe', u'ncat.exe', u'netcat.exe', u'socat.exe'])
+# chi lancia di norma WerFaultSecure.exe: il servizio di segnalazione degli errori
+PADRI_WER = set([u'werfault.exe', u'svchost.exe', u'wermgr.exe'])
+RX_WER_PID = re.compile(u'(^|\\s)[/-]pid\\s+\\d+', re.I)
+
 # Nomi di processi di sistema: sospetti se eseguiti fuori dalle cartelle di sistema
 PROCESSI_DI_SISTEMA = set([u'svchost.exe', u'lsass.exe', u'csrss.exe', u'winlogon.exe', u'services.exe',
                            u'smss.exe', u'wininit.exe', u'spoolsv.exe', u'taskhost.exe', u'taskhostw.exe',
@@ -584,7 +594,17 @@ def noto_in_profilo(percorso):
 # driver caricati da strumenti di acquisizione forense: lasciati da chi
 # ha raccolto le prove, non da un attaccante
 _RX_DRIVER_FORENSE = re.compile(
-    u'^(ad_driver|pmem|winpmem|ramcapturedriver|dumpit|mnemosyne|magnetramcapture)(\\d{1,3}|[_-][a-z0-9]+)?$', re.I)
+    u'^(ad_driver|pmem|winpmem|ramcapturedriver|dumpit|mnemosyne|magnetramcapture)(\\d{1,3}|[ _-][a-z0-9]+)?$', re.I)
+# i programmi che acquisiscono la memoria e caricano quei driver
+_RX_ACQUISIZIONE = re.compile(
+    u'^(dumpit|winpmem|go-winpmem|magnetramcapture|mrc|ramcapture(64)?|belkasoftramcapturer|ftk ?imager)'
+    u'([_-][a-z0-9_.-]*)?\\.exe$', re.I)
+
+
+def acquisizione(nome_file):
+    """Vero se il programma e' uno strumento di acquisizione della memoria
+    (DumpIt, WinPmem, Magnet RAM Capture...)."""
+    return _RX_ACQUISIZIONE.match(nome_base(nome_file or u'')) is not None
 
 
 def driver_forense(nome_servizio, percorso):
@@ -865,6 +885,98 @@ def _testo_utf16_in_base64(blocco):
         return False
     leggibili = len([c for c in bassi if ' ' <= c <= '~' or c in '\r\n\t'])
     return leggibili * 100 >= len(bassi) * 85
+
+
+# --------------------------------------------------------------------------
+# Gli oggetti dei segnali: due segnali che parlano dello stesso oggetto sono
+# lo stesso fatto (un "fenomeno", vedi tc_controlli.Triage.fenomeni) e non si
+# confermano a vicenda.
+# --------------------------------------------------------------------------
+
+def chiave_file(percorso):
+    """Un file, con il percorso in forma confrontabile (percorso_normale)."""
+    p = percorso_normale(percorso)
+    if not p or u'\\' not in p:
+        return u''
+    if not p.startswith(u'\\'):
+        p = u'\\' + p
+    return u'file:' + p
+
+
+def chiave_programma(percorso, riga=False):
+    """Il programma, se non e' uno di Windows: cmd.exe o powershell.exe servono
+    a comandi che non hanno nulla in comune e non devono legarli. Con riga=True
+    il percorso e' una riga di comando e il programma e' il suo eseguibile."""
+    if riga:
+        percorso = spezza_comando(percorso)[0]
+    k = chiave_file(percorso)
+    if not k or k.startswith(u'file:\\windows\\'):
+        return u''
+    return k
+
+
+def chiave_comando(riga):
+    """Una riga di comando: minuscole, spazi e virgolette normalizzati."""
+    r = u' '.join((riga or u'').replace(u'"', u' ').split()).lower()
+    return (u'cmd:' + r[:300]) if len(r) >= 3 else u''
+
+
+def chiave(tipo, valore):
+    """Un oggetto con un nome: attivita', servizio, account, indirizzo..."""
+    v = u' '.join((valore or u'').split()).lower().strip(u'\\')
+    return (u'%s:%s' % (tipo, v[:300])) if v and v != u'-' else u''
+
+
+def chiavi_tempo(tipo, ora, finestra=600):
+    """Due chiavi per un momento: due momenti a meno di mezza finestra hanno
+    almeno una chiave in comune (due griglie sfalsate di mezza finestra)."""
+    if not ora:
+        return ()
+    meta = finestra // 2
+    return (u'%s@%d' % (tipo, int(ora // finestra)), u'%s@%d+' % (tipo, int((ora + meta) // finestra)))
+
+
+def chiave_testo(testo):
+    """Il contenuto di uno script o di un comando decodificato (i primi 200
+    caratteri, normalizzati): lega il blocco 4104 al comando che l'ha lanciato."""
+    t = u' '.join((testo or u'').split()).lower()
+    return (u'testo:' + t[:200]) if len(t) >= 20 else u''
+
+
+def oggetti_comando(riga, immagine=u'', chiaro=u''):
+    """Le chiavi di un comando: la riga, il programma (se non e' di Windows),
+    il comando in chiaro (se era codificato) e l'account che il comando crea o
+    aggiunge a un gruppo (cosi' il comando e l'evento 4720 o 4732 sono un fatto solo)."""
+    chiavi = [chiave_comando(riga or immagine)]
+    chiavi.append(chiave_programma(immagine) if immagine else chiave_programma(riga, True))
+    chiavi.append(chiave_testo(chiaro))
+    for testo in (riga, chiaro):
+        chiavi.append(chiave(u'account', account_del_comando(testo)))
+    return tuple([k for k in chiavi if k])
+
+
+_RX_NET_ACCOUNT = re.compile(u'(?<![a-z0-9_-])net1?(?:\\.exe)?"?\\s+(user|localgroup|group)\\s+([^|&;\\r\\n]*)', re.I)
+_RX_NEW_LOCALUSER = re.compile(u'new-localuser\\b[^|;\\r\\n]*?-name\\s+["\']?([^\\s"\';|]+)', re.I)
+_RX_NEW_LOCALUSER_POSIZIONE = re.compile(u'new-localuser\\s+["\']?([^-\\s"\'$][^\\s"\';|]*)', re.I)
+_RX_ADD_MEMBER = re.compile(u'add-localgroupmember\\b[^|;\\r\\n]*?-member\\s+["\']?([^\\s"\',;|]+)', re.I)
+
+
+def account_del_comando(riga):
+    """Il nome dell'account che un comando crea o aggiunge a un gruppo (net user
+    ... /add, net localgroup ... /add, New-LocalUser, Add-LocalGroupMember),
+    senza dominio; '' se il comando non lo fa."""
+    if not riga:
+        return u''
+    m = _RX_NET_ACCOUNT.search(riga)
+    if m is not None and u'/add' in m.group(2).lower():
+        nomi = [x.strip(u'"') for x in re.findall(u'"[^"]*"|\\S+', m.group(2)) if not x.startswith(u'/')]
+        nome = nomi[0] if m.group(1).lower() == u'user' and nomi else (nomi[1] if len(nomi) > 1 else u'')
+        return nome.split(u'\\')[-1]
+    for rx in (_RX_NEW_LOCALUSER, _RX_NEW_LOCALUSER_POSIZIONE, _RX_ADD_MEMBER):
+        m = rx.search(riga)
+        if m is not None:
+            return m.group(1).split(u'\\')[-1]
+    return u''
 
 
 def spezza_comando(testo):
@@ -1639,8 +1751,10 @@ COMANDI = [
      DA_CONFERMARE, F_LATERALE,
      N_(u'esecuzione o copia verso un\'altra macchina (wmic /node, sc o schtasks remoti, condivisione amministrativa)')),
     ([(_rx(u'netsh(\\.exe)?"?\\s'), _rx(u'portproxy\\s+add\\b')),
-      (_rx(u'(?<![a-z0-9_-])ssh(\\.exe)?"?(?=\\s)'), _rx(u'\\s-R\\s*\\S'))],
-     DA_CONFERMARE, F_ESFILTRAZIONE, N_(u'tunnel verso l\'esterno (inoltro di porta con netsh, ssh -R)')),
+      # -R, -L e -D di ssh, anche insieme alle opzioni senza argomento (-NfD 9999); maiuscole e
+      # minuscole contano: -l e' il nome dell'utente
+      (_rx(u'(?<![a-z0-9_-])ssh(\\.exe)?"?(?=\\s)'), re.compile(u'\\s-[46AaCfGgKkMNnqsTtVvXxYy]*[RLD]\\s*\\S'))],
+     DA_CONFERMARE, F_ESFILTRAZIONE, N_(u'tunnel o proxy verso l\'esterno (inoltro di porta con netsh, ssh -R, -L o -D)')),
     ([(_rx(u'curl(\\.exe)?"?(?=\\s)'), _rx(u'\\s-T\\s|--upload-file\\s|\\s(-F|--form)\\s+\\S*=@|--data-binary\\s+"?@')),
       (_rx(u'(?<![a-z0-9_-])(win)?rar(\\.exe)?"?\\s+a(?=\\s)'), _rx(u'\\s-hp\\S'))],
      DA_CONFERMARE, F_ESFILTRAZIONE, _COSA_INVIO),

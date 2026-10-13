@@ -35,12 +35,6 @@ def _modulo():
             u'read failed (position %d): %s',
         u'interrogazione del database del caso non riuscita: %s':
             u'query to the case database failed: %s',
-        u'Triage rapido: dice se una macchina Windows \u00e8 compromessa e merita un\'analisi forense completa. '
-        u'Cerca i segni di compromissione nei registri eventi, nel registro di sistema, nel Prefetch e '
-        u'negli altri artefatti; produce un verdetto, i segnali e un report HTML.':
-            u'Fast triage: tells whether a Windows machine is compromised and deserves a full forensic '
-            u'analysis. Looks for signs of compromise in the event logs, the registry, Prefetch and the other '
-            u'artifacts; produces a verdict, the findings and an HTML report.',
         u'Le impostazioni devono essere di tipo GenericIngestModuleJobSettings':
             u'The settings must be of type GenericIngestModuleJobSettings',
         u'Giorni da considerare \u00abrecenti\u00bb:':
@@ -97,8 +91,6 @@ def _modulo():
             u'Search for the memory results failed: ',
         u'Elenco delle origini dati del caso non riuscito: ':
             u'Listing the data sources of the case failed: ',
-        u'Segnali decisivi: %d - da confermare: %d':
-            u'Decisive findings: %d - to confirm: %d',
         u'<i>1 controllo non riuscito: i dettagli sono nel report e nel log di Autopsy.</i>':
             u'<i>1 check failed: the details are in the report and in the Autopsy log.</i>',
         u'<i>%d controlli non riusciti: i dettagli sono nel report e nel log di Autopsy.</i>':
@@ -163,8 +155,6 @@ def _modulo():
             u'ones. The most recent report is the valid one.',
         u'Risultato scritto ma non annunciato: ':
             u'Result written but not announced: ',
-        u'Segnali decisivi: %d, da confermare: %d':
-            u'Decisive findings: %d, to confirm: %d',
         u' (regola in pi\u00f9)':
             u' (extra rule)',
         u'Controllo %d':
@@ -187,12 +177,8 @@ def _modulo():
 def _controlli_1():
     # tc_controlli.py
     return {
-        u'COMPROMISSIONE PROBABILE':
-            u'LIKELY COMPROMISED',
         u'DA VERIFICARE':
             u'NEEDS REVIEW',
-        u'NESSUN INDIZIO':
-            u'NO INDICATORS FOUND',
         u'Contesto e dati volatili':
             u'Context and volatile data',
         u'Account e accessi':
@@ -398,25 +384,10 @@ def _controlli_2():
         u'controlli che ne dipendono sono incompleti.':
             u'%d files not read because of read errors (damaged image or inaccessible files): %s%s. The '
             u'checks that depend on them are incomplete.',
-        u'1 segnale decisivo: basta uno solo per trattare la macchina come compromessa.':
-            u'1 decisive finding: a single one is enough to treat the machine as compromised.',
-        u'%d segnali decisivi: basta uno solo per trattare la macchina come compromessa.':
-            u'%d decisive findings: a single one is enough to treat the machine as compromised.',
-        u'Nessun segnale decisivo, ma segnali da confermare in %d famiglie diverse (%s): presi insieme '
-        u'puntano nella stessa direzione.':
-            u'No decisive finding, but findings to confirm in %d different families (%s): taken together they '
-            u'point in the same direction.',
         u'Segnali da confermare in una sola famiglia (%s): da soli non bastano. Cerca conferme dall\'IT, '
         u'dall\'utente e dai log centralizzati.':
             u'Findings to confirm in a single family (%s): on their own they are not enough. Look for '
             u'confirmation from IT, from the user and from centralized logs.',
-        u'Nessun segnale, ma la copertura \u00e8 insufficiente: l\'assenza di tracce non esclude una '
-        u'compromissione.':
-            u'No findings, but coverage is insufficient: the absence of traces does not rule out a compromise.',
-        u'I controlli eseguiti non hanno trovato segnali. Il triage non sostituisce l\'analisi completa se '
-        u'ci sono altri motivi di sospetto.':
-            u'The checks that ran found nothing. Triage does not replace a full analysis if there are other '
-            u'reasons for suspicion.',
         u'Segnale decisivo':
             u'Decisive finding',
         u'Da confermare':
@@ -431,8 +402,6 @@ def _controlli_2():
             u'Artifact not found',
         u'Non verificabile':
             u'Cannot be verified',
-        u'%s - %d decisivi, %d da confermare':
-            u'%s - %d decisive, %d to confirm',
     }
 
 
@@ -505,8 +474,6 @@ def _report_1():
         u'Tutti gli orari sono in UTC.</div>':
             u'<div class="sotto">Report generated on %s UTC by the Windows Compromise Triage plugin %s for '
             u'Autopsy. All times are in UTC.</div>',
-        u'Segnali decisivi':
-            u'Decisive findings',
         u'<div class="scheda"><div class="numero">%d</div><div class="nome">Famiglie di '
         u'segnali</div></div>':
             u'<div class="scheda"><div class="numero">%d</div><div class="nome">Finding families</div></div>',
@@ -516,10 +483,6 @@ def _report_1():
             u'<div class="osservazione"><b>Note:</b> %s</div>',
         u'<div class="errore"><b>Un controllo non \u00e8 riuscito:</b><pre>%s</pre></div>':
             u'<div class="errore"><b>A check failed:</b><pre>%s</pre></div>',
-        u'<p class="indice"><a href="#segnali">Segnali</a><a href="#cronologia">Cronologia</a><a '
-        u'href="#controlli">I 41 controlli</a>':
-            u'<p class="indice"><a href="#segnali">Findings</a><a href="#cronologia">Timeline</a><a '
-            u'href="#controlli">The 41 checks</a>',
         u'<a href="#fase%d">Fase %d</a>':
             u'<a href="#fase%d">Phase %d</a>',
         u'<a href="#metodo">Come leggere il report</a></p>':
@@ -581,21 +544,6 @@ def _report_1():
             u'<details%s><summary>show or hide</summary>',
         u'<h2 id="metodo">Come leggere il report</h2>':
             u'<h2 id="metodo">How to read the report</h2>',
-        u'<p><b>Verdetto.</b> Un solo segnale <i>decisivo</i> basta per trattare la macchina come '
-        u'compromessa. I segnali <i>da confermare</i> contano quando arrivano da almeno due famiglie '
-        u'diverse (accessi, account, persistenza, programmi eseguiti, strumenti d\'attacco, strumenti a '
-        u'doppio uso, esecuzione remota, RMM, file, anti-forensics, antivirus, esfiltrazione e tunnel). '
-        u'Una sola famiglia d\u00e0 \u00abDa verificare\u00bb. Lo stesso vale quando non ci sono segnali ma c\'\u00e8 un '
-        u'avviso di copertura: registri o hive assenti, danneggiati o troppo corti, file che non si sono '
-        u'lasciati leggere, registri che si fermano prima del resto, controlli interrotti da un '
-        u'errore.</p>':
-            u'<p><b>Verdict.</b> A single <i>decisive</i> finding is enough to treat the machine as '
-            u'compromised. Findings <i>to confirm</i> count when they come from at least two different '
-            u'families (logons, accounts, persistence, program execution, attack tools, dual-use tools, '
-            u'remote execution, RMM, files, anti-forensics, antivirus, exfiltration and tunneling). A single '
-            u'family gives "Needs review". The same happens when there are no findings but there is a '
-            u'coverage warning: logs or hives that are missing, damaged or too short, files that could not be '
-            u'read, logs that stop before the rest, checks interrupted by an error.</p>',
         u'<p><b>Recente.</b> Alcuni controlli pesano di pi\u00f9 ci\u00f2 che \u00e8 recente. La finestra si conta '
         u'all\'indietro da un riferimento: il pi\u00f9 vecchio tra l\'ultimo evento scritto nel registro '
         u'Security e l\'ultimo scritto nel System (o, se mancano, gli ultimi eventi degli altri registri e '
@@ -618,26 +566,12 @@ def _report_1():
             u'<p><b>Extra rules.</b> The findings with this label come from well-known rules that are not '
             u'part of the 32 guides the checklist is built on (for example: the "sticky keys" backdoor, '
             u'Defender exclusions, PowerShell history).</p>',
-        u'<p><b>Limiti.</b> Un\'immagine del disco non contiene i dati volatili (controlli 2-7). ShimCache '
-        u'e AmCache provano che un file esisteva, non che \u00e8 stato eseguito. Le sottoscrizioni WMI vengono '
-        u'cercate anche tra gli oggetti cancellati del repository. Le copie shadow non vengono aperte.</p>':
-            u'<p><b>Limits.</b> A disk image does not contain volatile data (checks 2-7). ShimCache and '
-            u'AmCache prove that a file existed, not that it was executed. WMI subscriptions are also '
-            u'searched among the deleted objects of the repository. Shadow copies are not opened.</p>',
     }
 
 
 def _report_2():
     # tc_report.py
     return {
-        u'<p><b>RAM.</b> La RAM fotografa un istante: un processo gi\u00e0 terminato si vede solo se la sua '
-        u'memoria non \u00e8 ancora stata riusata (psscan), e per i processi la cui memoria era nel file di '
-        u'paging mancano la riga di comando e l\'utente. I processi \u00abforse nascosti\u00bb vanno confermati: a '
-        u'volte la scansione trova i resti di un processo appena terminato.</p>':
-            u'<p><b>Memory.</b> Memory is a snapshot of one moment: a process that has already ended is '
-            u'visible only if its memory has not been reused yet (psscan), and for processes whose memory was '
-            u'in the paging file the command line and the user are missing. Processes "maybe hidden" must be '
-            u'confirmed: sometimes the scan finds the remains of a process that has just ended.</p>',
         u'<p class="sotto">Analisi completata in %.1f secondi.</p>':
             u'<p class="sotto">Analysis completed in %.1f seconds.</p>',
         u'Titolo del controllo':
@@ -872,8 +806,6 @@ def _regole_2():
         u'amministrativa)':
             u'execution on or copy to another machine (wmic /node, remote sc or schtasks, administrative '
             u'share)',
-        u'tunnel verso l\'esterno (inoltro di porta con netsh, ssh -R)':
-            u'tunnel to the outside (port forwarding with netsh, ssh -R)',
         u'Desktop remoto abilitato da riga di comando':
             u'Remote Desktop enabled from the command line',
         u'account nascosto dalla schermata di accesso':
@@ -1062,9 +994,6 @@ def _controlli_registro_1():
             u'Last write (UTC)',
         u'la DLL del servizio sta in una cartella scrivibile dagli utenti: %s':
             u'the service DLL is in a user-writable folder: %s',
-        u'driver di uno strumento di acquisizione forense: probabilmente lasciato da chi ha raccolto le '
-        u'prove':
-            u'driver of a forensic acquisition tool: probably left by whoever collected the evidence',
         u'servizio':
             u'service',
         u'all\'avvio del sistema (0)':
@@ -1424,6 +1353,13 @@ def _controlli_eventi_1():
             u'%d damaged chunks',
         u'Registri eventi danneggiati: %s%s. Gli eventi che mancano non sono stati controllati.':
             u'Damaged event logs: %s%s. The missing events were not checked.',
+        u'Eventi non decodificati: %s%s. I record ci sono, ma il lettore del plugin non ne ha saputo leggere '
+        u'il contenuto: possono essere rovinati oppure scritti in una forma che il lettore non conosce. Questi '
+        u'eventi non sono stati controllati; si possono aprire con un altro strumento (per esempio il '
+        u'Visualizzatore eventi di Windows).':
+            u'Events not decoded: %s%s. The records are there, but the plugin\'s reader could not read their '
+            u'content: they may be damaged or written in a form the reader does not know. These events were not '
+            u'checked; they can be opened with another tool (for example the Windows Event Viewer).',
         u'In 1 registro eventi l\'evento con la data pi\u00f9 recente non \u00e8 l\'ultimo scritto: in %s si arriva '
         u'al %s UTC, ma l\'ultimo evento scritto \u00e8 del %s UTC. L\'orologio della macchina \u00e8 stato riportato '
         u'indietro (o corretto) di %s. La finestra dei controlli recenti si conta dall\'ultimo evento '
@@ -1557,8 +1493,6 @@ def _controlli_eventi_2():
             u'Last (UTC)',
         u'Esclusi gli account macchina e ANONYMOUS LOGON. In tutto %d combinazioni di utente e origine.':
             u'Machine accounts and ANONYMOUS LOGON excluded. %d combinations of user and source in total.',
-        u'Accesso riuscito da un indirizzo pubblico: %s come %s (%s, %d volte)':
-            u'Successful logon from a public address: %s as %s (%s, count: %d)',
         u'Primo: %s - ultimo: %s (UTC). Verifica se quell\'utente si collega davvero da l\u00ec.':
             u'First: %s - last: %s (UTC). Check whether that user really connects from there.',
         u' (la macchina stessa)':
@@ -1591,16 +1525,11 @@ def _controlli_eventi_2():
             u' First successful logon after the start of the burst (%s): %s.',
         u'Accesso riuscito da un computer chiamato \u00ab%s\u00bb come %s':
             u'Successful logon from a computer named "%s" as %s',
-        u'Nome predefinito di una distribuzione usata per gli attacchi. %d volte, primo: %s - ultimo: %s '
-        u'(UTC).':
-            u'Default name of a distribution used for attacks. Count: %d, first: %s - last: %s (UTC).',
         u'Accessi falliti da %d indirizzi pubblici diversi: la macchina \u00e8 esposta a Internet':
             u'Failed logons from %d different public addresses: the machine is exposed to the Internet',
         u'\u00c8 il rumore di fondo dei tentativi automatici: conta se uno di questi indirizzi poi entra.':
             u'It is the background noise of automated attempts: it matters if one of these addresses then '
             u'gets in.',
-        u'Sessione RDP da un indirizzo pubblico: %s come %s (%d eventi)':
-            u'RDP session from a public address: %s as %s (events: %d)',
         u'Primo: %s - ultimo: %s (UTC). Fonte: %s.%s':
             u'First: %s - last: %s (UTC). Source: %s.%s',
         u' Lo stesso indirizzo compare anche nei 4624.':
@@ -1613,8 +1542,6 @@ def _controlli_eventi_2():
             u'Terminal Services logs not found',
         u'Credenziali esplicite verso %s: %s usa l\'account %s da %s':
             u'Explicit credentials towards %s: %s uses the account %s from %s',
-        u'Evento 4648, %d volte. Primo: %s - ultimo: %s (UTC).':
-            u'Event 4648, count: %d. First: %s - last: %s (UTC).',
         u'Credenziali esplicite (4648): le 30 combinazioni pi\u00f9 recenti':
             u'Explicit credentials (4648): the 30 most recent combinations',
         u'Chi':
@@ -1633,8 +1560,6 @@ def _controlli_eventi_2():
             u'System.evtx not found',
         u'seguito dal timeout 7009: il programma non si comporta da servizio':
             u'followed by the 7009 timeout: the program does not behave like a service',
-        u'driver di uno strumento di acquisizione forense':
-            u'driver of a forensic acquisition tool',
         u'servizio installato (evento %s)':
             u'installed service (event %s)',
         u' (%d volte)':
@@ -1696,8 +1621,6 @@ def _controlli_eventi_3():
             u'PsExec or one of its clones, used remotely',
         u'caricamento in ADMIN$ di un .exe con nome di 8 lettere a caso (tipico di psexec.py)':
             u'upload to ADMIN$ of an .exe with a random 8-letter name (typical of psexec.py)',
-        u'Da %s come %s: %s (%d eventi)':
-            u'From %s as %s: %s (events: %d)',
         u'Primo: %s - ultimo: %s (UTC)\n%s':
             u'First: %s - last: %s (UTC)\n%s',
         u'Accessi alle share tipici dell\'esecuzione remota (5145)':
@@ -1716,8 +1639,6 @@ def _controlli_eventi_3():
             u'script block (4104)',
         u'avvio di PowerShell (400)':
             u'engine start (400)',
-        u'%s%s\nPrimo: %s (UTC) - %d volte':
-            u'%s%s\nFirst: %s (UTC) - count: %d',
         u'Dal %s al %s (UTC).\n%s':
             u'From %s to %s (UTC).\n%s',
         u'ricognizione':
@@ -2270,22 +2191,6 @@ def _memoria_1():
         u'il manifesto \u00e8 di una versione pi\u00f9 recente dello script di raccolta (formato %d): aggiorna il '
         u'plugin':
             u'the manifest comes from a newer version of the collection script (format %d): update the plugin',
-        u'RAM: i risultati di Volatility in %s non si possono usare: %s. I controlli sui dati volatili '
-        u'non sono stati fatti.':
-            u'Memory: the Volatility results in %s cannot be used: %s. The checks on volatile data were not '
-            u'done.',
-        u'Nell\'origine dati ci sono i risultati di Volatility di un altro computer (%s, in %s): non sono '
-        u'stati usati per %s.':
-            u'The data source contains the Volatility results of another computer (%s, in %s): they were not '
-            u'used for %s.',
-        u'La RAM viene da un\'altra origine dati del caso (\u00ab%s\u00bb, %s): \u00e8 stata usata perch\u00e9 il nome del '
-        u'computer \u00e8 lo stesso (%s).':
-            u'The memory comes from another data source of the case ("%s", %s): it was used because the '
-            u'computer name is the same (%s).',
-        u'I risultati di Volatility in %s sono stati usati perch\u00e9 stanno nella stessa origine dati, ma il '
-        u'nome del computer non si \u00e8 potuto confrontare con quello del registro.':
-            u'The Volatility results in %s were used because they are in the same data source, but the '
-            u'computer name could not be compared with the one in the registry.',
         u'dalla RAM: nome del computer e ora dell\'acquisizione':
             u'from memory: computer name and acquisition time',
         u'Volatility 3 non ha un plugin per la cache DNS: serve il triage dal vivo':
@@ -2304,8 +2209,6 @@ def _memoria_1():
             u'output too large',
         u'RAM %s, plugin di Volatility senza risultati: %s. Controlli incompleti: %s.':
             u'Memory %s, Volatility plugins without results: %s. Incomplete checks: %s.',
-        u'RAM %s, plugin di Volatility senza risultati: %s. I controlli non ne risentono.':
-            u'Memory %s, Volatility plugins without results: %s. The checks are not affected.',
         u'RAM %s: la raccolta con Volatility \u00e8 stata interrotta prima della fine.':
             u'Memory %s: the collection with Volatility was interrupted before the end.',
         u'Riga di comando: %s':
@@ -2452,6 +2355,495 @@ def _memoria_2():
     }
 
 
+def _versione_13():
+    # i testi nuovi della versione 1.3
+    return {
+        u'Triage rapido: indica quali macchine Windows esaminare per prime. Cerca indicatori di compromissione'
+        u' nei registri eventi, nel registro di sistema, nel Prefetch, negli altri artefatti e nella RAM anali'
+        u'zzata con Volatility; produce un verdetto euristico, i segnali e un report HTML.':
+            u'Quick triage: points out which Windows machines to examine first. Looks for indicators of compromise'
+            u' in the event logs, the registry, the Prefetch, the other artifacts and the memory analyzed with Vol'
+            u'atility; produces a heuristic verdict, the signals and an HTML report.',
+        u'RAM (risultati di Volatility):':
+            u'Memory (Volatility results):',
+        u'Automatica: stessa origine o stesso host':
+            u'Automatic: same data source or same host',
+        u'Nessuna':
+            u'None',
+        u'Scelta prima, non trovata in questo caso':
+            u'Chosen before, not found in this case',
+        u'Quale RAM va con questa macchina lo dici tu:':
+            u'You say which memory goes with this machine:',
+        u'il plugin controlla la scelta e avvisa.':
+            u'the module checks the choice and warns.',
+        u'Nell\'origine dati ci sono risultati di Volatility, ma nelle impostazioni dell\'ingest la RAM \u00e8'
+        u' esclusa: i controlli sui dati volatili non sono stati fatti.':
+            u'The data source contains Volatility results, but the ingest settings exclude the memory: the checks '
+            u'on volatile data were not done.',
+        u'La RAM scelta nelle impostazioni dell\'ingest non si trova in questo caso: i controlli sui dati vola'
+        u'tili non sono stati fatti. Sceglila di nuovo.':
+            u'The memory chosen in the ingest settings is not in this case: the checks on volatile data were not d'
+            u'one. Choose it again.',
+        u'RAM scelta non leggibile: ':
+            u'Chosen memory not readable: ',
+        u'La RAM scelta nelle impostazioni dell\'ingest non si legge: i controlli sui dati volatili non sono s'
+        u'tati fatti.':
+            u'The memory chosen in the ingest settings cannot be read: the checks on volatile data were not done.',
+        u'durante l\'installazione di Windows: di solito \u00e8 il servizio temporaneo di un programma di inst'
+        u'allazione':
+            u'during the installation of Windows: usually the temporary service of a setup program',
+        u' (durante l\'installazione di Windows: uno script di preparazione della macchina)':
+            u' (during the installation of Windows: a script that prepared the machine)',
+        u'creato il %s UTC (evento 4720)':
+            u'created on %s UTC (event 4720)',
+        u'aggiunto al gruppo Administrators il %s UTC (evento %d)':
+            u'added to the Administrators group on %s UTC (event %d)',
+        u'Solo il nome: le informazioni di versione del file non confermano lo strumento (o il file non le ha,'
+        u' o non si legge).':
+            u'Only the name: the version information of the file does not confirm the tool (or the file has none, '
+            u'or cannot be read).',
+        u'Driver di uno strumento di acquisizione della memoria: %s risulta eseguito dalla stessa cartella e i'
+        u'l driver \u00e8 stato installato a %d minuti dall\'acquisizione della RAM. \u00c8 di chi ha raccolto'
+        u' le prove; l\'hash del file, che il plugin non pu\u00f2 confrontare, va controllato.':
+            u'Driver of a memory acquisition tool: %s was run from the same folder and the driver was installed %d'
+            u' minutes from the memory acquisition. It belongs to whoever collected the evidence; the hash of the '
+            u'file, which the module cannot compare, should be checked.',
+        u'lo strumento eseguito dalla stessa cartella':
+            u'the tool run from the same folder',
+        u'un\'acquisizione della RAM di questa macchina entro mezz\'ora':
+            u'a memory acquisition of this machine within half an hour',
+        u'Ha il nome del driver di uno strumento di acquisizione della memoria, ma mancano %s: il nome da solo'
+        u' non basta, perch\u00e9 si copia.':
+            u'It has the name of the driver of a memory acquisition tool, but %s are missing: the name alone is no'
+            u't enough, because it can be copied.',
+        u' e ':
+            u' and ',
+        u'Amcache.hve non trovato su Windows %s (build %d), che lo crea sempre: manca una fonte delle prove di'
+        u' esecuzione e il controllo 26 \u00e8 parziale.':
+            u'Amcache.hve not found on Windows %s (build %d), which always creates it: a source of execution evide'
+            u'nce is missing and check 26 is partial.',
+        u'nome originale: ':
+            u'original name: ',
+        u'Solo il nome: nessuna prova di esecuzione e nessuna informazione di versione del file che confermi l'
+        u'o strumento.':
+            u'Only the name: no evidence of execution and no version information of the file confirming the tool.',
+        u'INDICATORI DI COMPROMISSIONE':
+            u'INDICATORS OF COMPROMISE',
+        u'DA VERIFICARE, PRIORIT\u00c0 ALTA':
+            u'NEEDS REVIEW, HIGH PRIORITY',
+        u'NESSUN INDICATORE TROVATO':
+            u'NO INDICATORS FOUND',
+        u'Verdetto euristico di triage: indica dove guardare prima. Non \u00e8 una probabilit\u00e0 n\u00e9 un'
+        u'a prova; la conclusione spetta all\'analisi forense.':
+            u'Heuristic triage verdict: it points out where to look first. It is neither a probability nor proof; '
+            u'the conclusion is up to the forensic analysis.',
+        u'Driver degli strumenti di acquisizione: %s':
+            u'Drivers of the acquisition tools: %s',
+        u'disco':
+            u'disk',
+        u'Controlli parziali o non verificabili perch\u00e9 una fonte presente non \u00e8 riuscita: %s.':
+            u'Checks partial or not verifiable because a source that is there did not work: %s.',
+        u'1 fatto decisivo: un indicatore che di rado ha una spiegazione innocente e che da solo giustifica l'
+        u'\'esame della macchina. Non \u00e8 una prova.':
+            u'1 decisive fact: an indicator that rarely has an innocent explanation and alone justifies examining '
+            u'the machine. It is not proof.',
+        u'%d fatti decisivi: indicatori che di rado hanno una spiegazione innocente e che da soli giustificano'
+        u' l\'esame della macchina. Non sono una prova.':
+            u'%d decisive facts: indicators that rarely have an innocent explanation and alone justify examining t'
+            u'he machine. They are not proof.',
+        u'Nessun fatto decisivo, ma segnali da confermare in %d famiglie (%s) da fatti diversi: puntano nella '
+        u'stessa direzione e vanno verificati per primi.':
+            u'No decisive fact, but signals to confirm in %d families (%s) from different facts: they point the sa'
+            u'me way and should be checked first.',
+        u'Segnali da confermare in %d famiglie (%s), ma tutti sullo stesso oggetto: contano come un fatto solo'
+        u'. Cerca conferme dall\'IT, dall\'utente e dai log centralizzati.':
+            u'Signals to confirm in %d families (%s), but all about the same object: they count as one fact. Look '
+            u'for confirmation from IT, the user and the central logs.',
+        u'Segnali da una RAM con l\'output anomalo o da fonti che non concordano: da soli non portano oltre '
+        u'\u00abda verificare\u00bb.':
+            u'Signals from a memory with anomalous output or from sources that disagree: alone they do not go beyo'
+            u'nd "needs review".',
+        u'Nessun indicatore, ma la copertura \u00e8 insufficiente: l\'assenza di indicatori non esclude una co'
+        u'mpromissione.':
+            u'No indicators, but the coverage is insufficient: the absence of indicators does not rule out a compr'
+            u'omise.',
+        u'I controlli eseguiti non hanno trovato indicatori. Non vuol dire che il sistema sia pulito: il triag'
+        u'e non vede tutto (i limiti sono nel README).':
+            u'The checks that were run found no indicators. It does not mean the system is clean: the triage does '
+            u'not see everything (the limits are in the README).',
+        u' %d segnali vengono da una RAM che il disco contraddice: restano nel report ma non contano.':
+            u' %d signals come from a memory that the disk contradicts: they stay in the report but do not count.',
+        u'parziale, manca: %s':
+            u'partial, missing: %s',
+        u'Parziale':
+            u'Partial',
+        u'avviato da %s, un processo di sistema che non avvia mai programmi come questo: codice estraneo dentr'
+        u'o un processo di sistema':
+            u'started by %s, a system process that never starts programs like this: foreign code inside a system p'
+            u'rocess',
+        u'interprete di comandi avviato direttamente da services.exe: un servizio che esegue un comando, come '
+        u'fanno PsExec e smbexec':
+            u'command interpreter started directly by services.exe: a service that runs a command, as PsExec and s'
+            u'mbexec do',
+        u'shell avviata da %s: comandata a distanza attraverso uno strumento di rete':
+            u'shell started by %s: controlled remotely through a network tool',
+        u'WerFaultSecure.exe lanciato da %s contro un altro processo (/pid): la tecnica EDR-Freeze per sospend'
+        u'ere l\'antivirus o l\'EDR':
+            u'WerFaultSecure.exe launched by %s against another process (/pid): the EDR-Freeze technique to suspen'
+            u'd the antivirus or the EDR',
+        u'WerFaultSecure.exe lanciato contro un altro processo (/pid) da un processo che non si conosce: pu'
+        u'\u00f2 essere la tecnica EDR-Freeze':
+            u'WerFaultSecure.exe launched against another process (/pid) by an unknown process: it may be the EDR-'
+            u'Freeze technique',
+        u'scelta nelle impostazioni dell\'ingest':
+            u'chosen in the ingest settings',
+        u'origine dati \u00ab%s\u00bb dello stesso host di Autopsy':
+            u'data source "%s" of the same Autopsy host',
+        u'origine dati \u00ab%s\u00bb di un altro host':
+            u'data source "%s" of another host',
+        u'nella stessa origine dati':
+            u'in the same data source',
+        u'RAM %s: i risultati di Volatility in %s non si possono usare: %s. I controlli sui dati volatili non '
+        u'sono stati fatti.':
+            u'Memory %s: the Volatility results in %s cannot be used: %s. The checks on volatile data were not don'
+            u'e.',
+        u'La RAM %s (%s) \u00e8 indicata per un\'origine dati con %d installazioni di Windows: non si sa a qua'
+        u'le appartiene e non \u00e8 stata usata per nessuna. Per usarla, metti l\'installazione giusta in un'
+        u'\'origine dati a s\u00e9.':
+            u'The memory %s (%s) is designated for a data source with %d Windows installations: it is not known wh'
+            u'ich one it belongs to, and it was used for none. To use it, put the right installation in a data sou'
+            u'rce of its own.',
+        u'Nell\'origine dati ci sono anche i risultati di Volatility di un altro computer (%s, in %s): non son'
+        u'o stati usati, perch\u00e9 mescolarli darebbe un verdetto che non riguarda nessuna macchina.':
+            u'The data source also contains the Volatility results of another computer (%s, in %s): they were not '
+            u'used, because mixing them would give a verdict about no machine.',
+        u'Nell\'origine dati \u00ab%s\u00bb, di un altro host di Autopsy, c\'\u00e8 una RAM con lo stesso nome'
+        u' di computer (%s, in %s): non \u00e8 stata usata. Se \u00e8 di questa macchina, metti le due origini'
+        u' dati nello stesso host oppure indicala nelle impostazioni dell\'ingest.':
+            u'The data source "%s", of another Autopsy host, contains a memory with the same computer name (%s, in'
+            u' %s): it was not used. If it belongs to this machine, put the two data sources in the same host or c'
+            u'hoose it in the ingest settings.',
+        u'output diverso da quello registrato nel manifesto (righe o SHA-256)':
+            u'output different from the one recorded in the manifest (rows or SHA-256)',
+        u'%s: Volatility non l\'ha riconosciuto (%s). Non \u00e8 un\'immagine della memoria di Windows, oppure'
+        u' mancano i simboli del suo kernel. I controlli sui dati volatili non sono stati fatti.':
+            u'%s: Volatility did not recognize it (%s). It is not a Windows memory image, or the symbols of its ke'
+            u'rnel are missing. The checks on volatile data were not done.',
+        u'RAM %s: nessun plugin di Volatility ha dato risultati (%s). I controlli sui dati volatili non sono s'
+        u'tati fatti.':
+            u'Memory %s: no Volatility plugin gave results (%s). The checks on volatile data were not done.',
+        u'nessun risultato di Volatility in %s':
+            u'no Volatility results in %s',
+        u'i servizi rimasti solo in memoria non si controllano':
+            u'the services left only in memory are not checked',
+        u'RAM %s, plugin di Volatility senza risultati: %s. I controlli non ne risentono; i controlli sull\'ab'
+        u'binamento della RAM che ne dipendono non si possono fare.':
+            u'Memory %s, Volatility plugins without results: %s. The checks are not affected; the checks on the me'
+            u'mory pairing that depend on them cannot be done.',
+        u'%s; usato %s, che non vede le connessioni gi\u00e0 chiuse':
+            u'%s; %s used instead, which does not see the connections already closed',
+        u'RAM %s: %s %s; le connessioni vengono da %s, che non vede quelle gi\u00e0 chiuse. I controlli 5 e 7 '
+        u'sono parziali.':
+            u'Memory %s: %s %s; the connections come from %s, which does not see those already closed. Checks 5 an'
+            u'd 7 are partial.',
+        u'RAM %s: il manifesto non dichiara completa la raccolta con Volatility (fermata prima della fine).':
+            u'Memory %s: the manifest does not declare the Volatility collection complete (stopped before the end)'
+            u'.',
+        u'concorda':
+            u'agrees',
+        u'contraddice':
+            u'contradicts',
+        u'non verificabile':
+            u'not verifiable',
+        u'build di Windows':
+            u'Windows build',
+        u'RAM %d, disco %d':
+            u'memory %d, disk %d',
+        u'manca la build della RAM o del disco':
+            u'the build of the memory or of the disk is missing',
+        u'nome del computer':
+            u'computer name',
+        u'RAM %s, disco %s':
+            u'memory %s, disk %s',
+        u'manca il nome nella RAM o sul disco':
+            u'the name is missing in the memory or on the disk',
+        u'avvio di Windows':
+            u'Windows boot',
+        u'avvio della RAM %s UTC, nel registro System alle %s UTC':
+            u'memory boot %s UTC, in the System log at %s UTC',
+        u'avvio della RAM %s UTC: nessun avvio entro 2 minuti nel registro System, che copre quel momento':
+            u'memory boot %s UTC: no boot within 2 minutes in the System log, which covers that moment',
+        u'il registro System non copre l\'avvio della RAM, o manca uno dei due':
+            u'the System log does not cover the memory boot, or one of the two is missing',
+        u'SID della macchina':
+            u'machine SID',
+        u'mancano i SID della RAM o del disco':
+            u'the SIDs of the memory or of the disk are missing',
+        u'ora dell\'acquisizione':
+            u'acquisition time',
+        u'RAM %s UTC, registri dal %s al %s UTC':
+            u'memory %s UTC, logs from %s to %s UTC',
+        u'manca l\'ora della RAM o il periodo dei registri':
+            u'the memory time or the period of the logs is missing',
+        u'La RAM %s (%s) non sembra di questa installazione di Windows: %s. I suoi indizi restano nel report, '
+        u'segnati, ma non contano per il verdetto finch\u00e9 l\'abbinamento non viene corretto.':
+            u'The memory %s (%s) does not seem to belong to this Windows installation: %s. Its findings stay in th'
+            u'e report, marked, but do not count for the verdict until the pairing is corrected.',
+        u'Abbinamento della RAM %s (%s) da verificare: %s. I suoi indizi contano per il verdetto.':
+            u'Pairing of the memory %s (%s) to be checked: %s. Its findings count for the verdict.',
+        u'solo %d processi attivi in pslist':
+            u'only %d active processes in pslist',
+        u'mancano processi che un Windows acceso ha sempre: %s':
+            u'processes that a running Windows always has are missing: %s',
+        u'psscan trova %d processi attivi che pslist non elenca':
+            u'psscan finds %d active processes that pslist does not list',
+        u'nessuna porta in ascolto in %s':
+            u'no listening port in %s',
+        u'solo %d servizi in svcscan':
+            u'only %d services in svcscan',
+        u'solo %d variabili d\'ambiente in envars':
+            u'only %d environment variables in envars',
+        u'RAM %s: output anomalo o forse incompleto (%s). Non si distingue fra un problema di acquisizione, di'
+        u' estrazione o un occultamento. Gli indizi della RAM restano nel report, ma non portano il verdetto o'
+        u'ltre \u00abda verificare\u00bb.':
+            u'Memory %s: anomalous or possibly incomplete output (%s). An acquisition problem, an extraction probl'
+            u'em and concealment cannot be told apart. The findings of the memory stay in the report, but they do '
+            u'not take the verdict beyond "needs review".',
+        u'Processi attivi nella RAM con l\'utente %s, %s':
+            u'Processes active in the memory with the user %s, %s',
+        u'%s\nFonte: RAM %s':
+            u'%s\nSource: memory %s',
+        u'PID %d: %s (avviato %s UTC)':
+            u'PID %d: %s (started %s UTC)',
+        u' \u00ab?\u00bb: Volatility non ha attribuito la connessione a un processo. Succede con le build di W'
+        u'indows di cui conosce meno le strutture di rete (per esempio Windows 11 22H2 e 23H2) e con le connes'
+        u'sioni gi\u00e0 chiuse; non \u00e8 un indizio.':
+            u' "?": Volatility did not attribute the connection to a process. It happens with the Windows builds w'
+            u'hose network structures it knows less well (for example Windows 11 22H2 and 23H2) and with connectio'
+            u'ns already closed; it is not a finding.',
+        u'la RAM c\'\u00e8, ma Volatility non ha prodotto i servizi (%s)':
+            u'the memory is there, but Volatility did not produce the services (%s)',
+        u'driver di %s, lo strumento che ha acquisito la memoria (gira dalla stessa cartella, PID %d)':
+            u'driver of %s, the tool that acquired the memory (running from the same folder, PID %d)',
+        u'ha il nome del driver di uno strumento di acquisizione della memoria, ma lo strumento non gira nella'
+        u' RAM dalla stessa cartella: il nome da solo non basta':
+            u'it has the name of the driver of a memory acquisition tool, but the tool is not running in the memor'
+            u'y from the same folder: the name alone is not enough',
+        u'tunnel o proxy verso l\'esterno (inoltro di porta con netsh, ssh -R, -L o -D)':
+            u'tunnel or proxy to the outside (port forwarding with netsh, ssh -R, -L or -D)',
+        u'fatto %d':
+            u'fact %d',
+        u'RAM contraddetta dal disco: non conta':
+            u'memory contradicted by the disk: does not count',
+        u'RAM con output anomalo: non oltre \u00abda verificare\u00bb':
+            u'memory with anomalous output: not beyond "needs review"',
+        u'discordanza fra fonti':
+            u'disagreement between sources',
+        u' (dai registri eventi)':
+            u' (from the event logs)',
+        u'%s (solo nella RAM: non \u00e8 il nome dell\'installazione)':
+            u'%s (only in the memory: not the name of the installation)',
+        u'Installazione secondo i registri eventi':
+            u'Installation according to the event logs',
+        u'preparazione dal %s UTC, nome definitivo dal %s UTC':
+            u'preparation from %s UTC, final name from %s UTC',
+        u'%d segnali da una RAM anomala o da fonti discordanti':
+            u'%d signals from an anomalous memory or from sources that disagree',
+        u'%d segnali da una RAM contraddetta, esclusi':
+            u'%d signals from a contradicted memory, excluded',
+        u'Abbinamento della RAM %s: %s.':
+            u'Pairing of the memory %s: %s.',
+        u'contraddetto (%s): i suoi indizi non contano':
+            u'contradicted (%s): its findings do not count',
+        u'da verificare (%s)':
+            u'to be checked (%s)',
+        u'concorda (%s)':
+            u'agrees (%s)',
+        u'non verificabile con gli artefatti del disco':
+            u'not verifiable with the disk artifacts',
+        u'; output anomalo, i suoi indizi non portano oltre \u00abda verificare\u00bb':
+            u'; anomalous output, its findings do not go beyond "needs review"',
+        u'SHA-256 dell\'immagine':
+            u'SHA-256 of the image',
+        u'Indicata':
+            u'Designated',
+        u'Esito dell\'abbinamento':
+            u'Pairing outcome',
+        u'Output anomalo':
+            u'Anomalous output',
+        u'no':
+            u'no',
+        u'Identit\u00e0':
+            u'Identity',
+        u'<p class="nota">L\'abbinamento lo indica l\'analista (stessa origine dati con una sola installazione'
+        u', stesso host di Autopsy o scelta nelle impostazioni dell\'ingest); il plugin lo controlla con gli a'
+        u'rtefatti del disco. Se un controllo d\'identit\u00e0 (build, avvio, SID) lo contraddice, gli indizi '
+        u'della RAM restano qui, segnati, ma non contano per il verdetto; il nome e l\'ora danno solo un avvis'
+        u'o.</p>':
+            u'<p class="nota">The analyst designates the pairing (same data source with a single installation, sam'
+            u'e Autopsy host, or chosen in the ingest settings); the module checks it with the disk artifacts. If '
+            u'an identity check (build, boot, SID) contradicts it, the findings of the memory stay here, marked, b'
+            u'ut do not count for the verdict; the name and the time give only a warning.</p>',
+        u'escluso':
+            u'excluded',
+        u'incerto':
+            u'uncertain',
+        u'Fatti decisivi':
+            u'Decisive facts',
+        u'Fatti da confermare':
+            u'Facts to confirm',
+        u'Segnali che contano':
+            u'Signals that count',
+        u'<p class="indice"><a href="#segnali">Segnali</a><a href="#fatti">Fatti</a><a href="#cronologia">Cron'
+        u'ologia</a><a href="#controlli">I 41 controlli</a>':
+            u'<p class="indice"><a href="#segnali">Signals</a><a href="#fatti">Facts</a><a href="#cronologia">Time'
+            u'line</a><a href="#controlli">The 41 checks</a>',
+        u'<h2 id="ram">RAM: abbinamento e controlli</h2>':
+            u'<h2 id="ram">Memory: pairing and checks</h2>',
+        u'<h3>Discordanze fra fonti e RAM con output anomalo (%d)</h3>':
+            u'<h3>Disagreements between sources and memory with anomalous output (%d)</h3>',
+        u'<p class="nota">Possono venire da un occultamento come da un problema di acquisizione o di estrazion'
+        u'e: portano il verdetto a \u00abda verificare\u00bb, non oltre.</p>':
+            u'<p class="nota">They can come from concealment as well as from an acquisition or extraction problem:'
+            u' they take the verdict to "needs review", not beyond.</p>',
+        u'<h3>Dalla RAM contraddetta dal disco (%d): non contano</h3>':
+            u'<h3>From the memory contradicted by the disk (%d): they do not count</h3>',
+        u'<h2 id="fatti">Fatti</h2>':
+            u'<h2 id="fatti">Facts</h2>',
+        u'Famiglie':
+            u'Families',
+        u'Visto in':
+            u'Seen in',
+        u'Segnali':
+            u'Signals',
+        u'Primo segnale':
+            u'First signal',
+        u'<p class="nota">Un fatto riunisce i segnali sullo stesso oggetto (processo, comando, file, attivit'
+        u'\u00e0, servizio, account, indirizzo, registro, blocco di script). Pi\u00f9 fonti che lo vedono conf'
+        u'ermano che \u00e8 avvenuto, non che sia pi\u00f9 grave; per il verdetto due famiglie contano solo se'
+        u' vengono da fatti diversi.</p>':
+            u'<p class="nota">A fact groups the signals about the same object (process, command, file, task, servi'
+            u'ce, account, address, log, script block). More sources seeing it confirm that it happened, not that '
+            u'it is more serious; for the verdict two families count only if they come from different facts.</p>',
+        u'<p>Nessun fatto decisivo o da confermare.</p>':
+            u'<p>No decisive facts or facts to confirm.</p>',
+        u'<p class="nota">\u00abParziale\u00bb: il controllo \u00e8 stato fatto, ma una sua fonte manca o '
+        u'\u00e8 incompleta (la nota dice quale). Un controllo parziale o non verificabile per una fonte che c'
+        u'\'\u00e8 ma non \u00e8 riuscita impedisce il verdetto \u00abnessun indicatore trovato\u00bb.</p>':
+            u'<p class="nota">"Partial": the check was done, but one of its sources is missing or incomplete (the '
+            u'note says which). A check that is partial or not verifiable because a source that is there did not w'
+            u'ork prevents the verdict "no indicators found".</p>',
+        u'<p><b>Verdetto.</b> Contano i fatti, non i segnali: i segnali sullo stesso oggetto sono un fatto sol'
+        u'o. Un fatto <i>decisivo</i> d\u00e0 \u00abIndicatori di compromissione\u00bb: un indicatore che di r'
+        u'ado ha una spiegazione innocente e che da solo giustifica l\'esame della macchina, non una prova. Se'
+        u'gnali <i>da confermare</i> in due famiglie diverse, da fatti diversi, danno \u00abDa verificare, pri'
+        u'orit\u00e0 alta\u00bb (famiglie: accessi, account, persistenza, programmi eseguiti, strumenti d\'att'
+        u'acco, strumenti a doppio uso, esecuzione remota, RMM, file, anti-forensics, antivirus, esfiltrazione'
+        u' e tunnel). Una sola famiglia, o un fatto solo, d\u00e0 \u00abDa verificare\u00bb; cos\u00ec anche l'
+        u'e discordanze fra fonti e gli indizi di una RAM con l\'output anomalo, e un avviso di copertura senz'
+        u'a segnali: registri o hive assenti, danneggiati o troppo corti, file che non si sono lasciati legger'
+        u'e, controlli parziali, registri che si fermano prima del resto, controlli interrotti da un errore. '
+        u'\u00abNessun indicatore trovato\u00bb non vuol dire che la macchina sia pulita.</p>':
+            u'<p><b>Verdict.</b> Facts count, not signals: signals about the same object are one fact. A <i>decisi'
+            u've</i> fact gives "Indicators of compromise": an indicator that rarely has an innocent explanation a'
+            u'nd alone justifies examining the machine, not proof. Signals <i>to confirm</i> in two different fami'
+            u'lies, from different facts, give "Needs review, high priority" (families: logons, accounts, persiste'
+            u'nce, program execution, attack tools, dual-use tools, remote execution, RMM, files, anti-forensics, '
+            u'antivirus, exfiltration and tunnels). A single family, or a single fact, gives "Needs review"; so do'
+            u' disagreements between sources, the findings of a memory with anomalous output, and a coverage warni'
+            u'ng without signals: logs or hives missing, damaged or too short, files that could not be read, parti'
+            u'al checks, logs that stop before the rest, checks interrupted by an error. "No indicators found" doe'
+            u's not mean that the machine is clean.</p>',
+        u'<p><b>Limiti.</b> Un\'immagine del disco non contiene i dati volatili (controlli 2-7). ShimCache e A'
+        u'mCache provano che un file esisteva, non che \u00e8 stato eseguito: uno strumento trovato solo per n'
+        u'ome resta da confermare. Le sottoscrizioni WMI vengono cercate anche tra gli oggetti cancellati del '
+        u'repository. Le copie shadow non vengono aperte. I limiti noti del rilevamento sono nel README.</p>':
+            u'<p><b>Limits.</b> A disk image does not contain volatile data (checks 2-7). ShimCache and AmCache pr'
+            u'ove that a file existed, not that it was run: a tool found only by name stays to be confirmed. WMI s'
+            u'ubscriptions are also searched among the deleted objects of the repository. Shadow copies are not op'
+            u'ened. The known detection gaps are in the README.</p>',
+        u'<p><b>RAM.</b> La RAM fotografa un istante: un processo gi\u00e0 terminato si vede solo se la sua me'
+        u'moria non \u00e8 ancora stata riusata (psscan), e per i processi la cui memoria era nel file di pagi'
+        u'ng mancano la riga di comando e l\'utente. Un processo \u00abforse nascosto\u00bb \u00e8 una discord'
+        u'anza fra due fonti: a volte la scansione trova i resti di un processo appena terminato. L\'output di'
+        u' Volatility si controlla contro il manifesto (righe e SHA-256) e contro quello che un Windows acceso'
+        u' ha sempre; quale RAM va con questa macchina lo indica l\'analista e il plugin lo controlla (vedi '
+        u'\u00abRAM: abbinamento e controlli\u00bb).</p>':
+            u'<p><b>Memory.</b> The memory captures one instant: a process that has already ended is seen only if '
+            u'its memory has not been reused yet (psscan), and for processes whose memory was in the paging file t'
+            u'he command line and the user are missing. A "possibly hidden" process is a disagreement between two '
+            u'sources: sometimes the scan finds the remains of a process that has just ended. The Volatility outpu'
+            u't is checked against the manifest (rows and SHA-256) and against what a running Windows always has; '
+            u'the analyst designates which memory goes with this machine and the module checks it (see "Memory: pa'
+            u'iring and checks").</p>',
+        u'Conta':
+            u'Counts',
+        u'RAM con output anomalo':
+            u'memory with anomalous output',
+        u'Secondo i registri eventi la cancellazione \u00e8 avvenuta durante la preparazione della macchina (n'
+        u'ome %s, poi sostituito): se fa parte della preparazione dell\'immagine, chi l\'ha preparata lo pu'
+        u'\u00f2 confermare.':
+            u'According to the event logs the clearing happened while the machine was being prepared (name %s, rep'
+            u'laced later): if it is part of the preparation of the image, whoever prepared it can confirm it.',
+        u'non disponibile nel Volatility usato (il plugin manca o non si carica)':
+            u'not available in the Volatility used (the plugin is missing or cannot be loaded)',
+        u'RAM %s: raccolta con Volatility %s, pi\u00f9 vecchio della versione provata (%s): alcuni plugin poss'
+        u'ono dare meno dati.':
+            u'RAM %s: collected with Volatility %s, older than the version tested (%s): some plugins may give less'
+            u' data.',
+        u'Fatto n.':
+            u'Fact no.',
+        u'nessuna riga di comando leggibile in cmdline (processi: %d)':
+            u'no readable command line in cmdline (processes: %d)',
+        u'Fatti decisivi: %d (segnali: %d) - fatti da confermare: %d (segnali: %d)':
+            u'Decisive facts: %d (signals: %d) - facts to confirm: %d (signals: %d)',
+        u'Accesso riuscito da un indirizzo pubblico: %s come %s (%s, %s)':
+            u'Successful logon from a public address: %s as %s (%s, %s)',
+        u'Nome predefinito di una distribuzione usata per gli attacchi. %s, primo: %s - ultimo: %s (UTC).':
+            u'Default name of a distribution used for attacks. %s, first: %s - last: %s (UTC).',
+        u'Evento 4648, %s. Primo: %s - ultimo: %s (UTC).':
+            u'Event 4648, %s. First: %s - last: %s (UTC).',
+        u'%s%s\nPrimo: %s (UTC) - %s':
+            u'%s%s\nFirst: %s (UTC) - %s',
+        u'%d fatto decisivo':
+            u'%d decisive fact',
+        u'%d fatti decisivi':
+            u'%d decisive facts',
+        u'%d segnale':
+            u'%d signal',
+        u'%d segnali':
+            u'%d signals',
+        u'%d fatto da confermare':
+            u'%d fact to confirm',
+        u'%d fatti da confermare':
+            u'%d facts to confirm',
+        u'1 volta':
+            u'1 time',
+        u'%d volte':
+            u'%d times',
+        u'%d segnale da una RAM anomala o da fonti discordanti':
+            u'%d signal from an anomalous memory or from sources that disagree',
+        u'%d segnale da una RAM contraddetta, escluso':
+            u'%d signal from a contradicted memory, excluded',
+        u'%s: decisivi %d, da confermare %d, di contesto %d.':
+            u'%s: decisive %d, to confirm %d, context %d.',
+        u'%d minuto':
+            u'%d minute',
+        u'%d ora':
+            u'%d hour',
+        u' %d segnale viene da una RAM che il disco contraddice: resta nel report ma non conta.':
+            u' %d signal comes from a memory that the disk contradicts: it stays in the report but does not count.',
+        u'Sessione RDP da un indirizzo pubblico: %s come %s (%s)':
+            u'RDP session from a public address: %s as %s (%s)',
+        u'Da %s come %s: %s (%s)':
+            u'From %s as %s: %s (%s)',
+        u'%d evento':
+            u'%d event',
+        u'%d eventi':
+            u'%d events',
+    }
+
+
 TESTI = {}
 for _parte in (_modulo,
                _controlli_1,
@@ -2477,6 +2869,7 @@ for _parte in (_modulo,
                _registro,
                _base,
                _memoria_1,
-               _memoria_2):
+               _memoria_2,
+               _versione_13):
     TESTI.update(_parte())
 del _parte
