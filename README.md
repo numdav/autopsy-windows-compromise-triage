@@ -40,6 +40,7 @@ with a self-contained HTML report.
 - [Development](#development)
 - [Compatibility and tests](#compatibility-and-tests)
 - [Troubleshooting](#troubleshooting)
+- [Project history](#project-history)
 - [Credits](#credits)
 - [License](#license)
 
@@ -629,6 +630,14 @@ repository contains the tests that need no evidence files.
 - **The report says some checks were interrupted by an error**: the other checks ran anyway; if there are no
   findings the verdict is "Needs review" instead of "No indicators found". Please open an issue with the error
   text.
+
+## Project history
+
+The module was not the starting point. The project started on 30 September 2026 from a study of the 32 guides behind
+its checklist and from the checklist itself, 41 checks to run on a live machine; then came the four versions, a
+PowerShell script that runs the checklist on the spot, the evaluation of version 1.2 and the verification of version
+1.3. The documents are in [history/](history/README.md), in Italian, and the history of this repository puts them in
+the order they were made, with each version as a tagged commit and a release.
 
 ## Credits
 

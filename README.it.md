@@ -41,6 +41,7 @@ viene, e un report HTML in un solo file.
 - [Sviluppo](#sviluppo)
 - [Compatibilità e prove fatte](#compatibilità-e-prove-fatte)
 - [Se qualcosa non va](#se-qualcosa-non-va)
+- [Storia del progetto](#storia-del-progetto)
 - [Riconoscimenti](#riconoscimenti)
 - [Licenza](#licenza)
 
@@ -649,6 +650,14 @@ nel repository ci sono le prove che non hanno bisogno di reperti.
 - **Il report dice che alcuni controlli sono stati interrotti da un errore**: gli altri controlli sono stati
   eseguiti lo stesso; se non ci sono segnali il verdetto è «Da verificare» invece di «Nessun indicatore trovato».
   Apri una issue con il testo dell'errore.
+
+## Storia del progetto
+
+Il modulo non è il punto di partenza. Il progetto è partito il 30 settembre 2026 da uno studio delle 32 guide su cui
+si basa la checklist e dalla checklist stessa, 41 controlli da eseguire su una macchina accesa; poi sono venute le
+quattro versioni, uno script PowerShell che esegue la checklist sul posto, la valutazione della versione 1.2 e la
+verifica della 1.3. I documenti sono in [history/](history/README.md), e la cronologia di questo repository li mette
+nell'ordine in cui sono stati fatti, con ogni versione come commit con il suo tag e la sua release.
 
 ## Riconoscimenti
 

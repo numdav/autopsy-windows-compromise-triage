@@ -45,7 +45,7 @@ Criteri, fissati prima della misura:
 - **Segnalato:** almeno un segnale *da confermare* o *decisivo*.
 - **Verdetto:** il plugin conclude «compromissione probabile».
 - **Nell'ambito:** il campione contiene almeno un evento che le regole del plugin leggono. Gli eventi li ho contati con un lettore EVTX indipendente, non con quello del plugin. I campioni fuori ambito (eventi Kerberos, firewall, replica di Active Directory, Sysmon diversi dalla creazione di processi) il plugin non può rilevarli per costruzione.
-- **Per la tecnica:** 34 campioni del set cieco contengono un evento di log cancellato e il plugin lo segnala; in 32 non fa parte della tecnica dell'etichetta, è probabilmente la pulizia fatta da chi ha preparato il campione. Se il campione non riguarda proprio la cancellazione dei log, quel segnale non conta.
+- **Per la tecnica:** 34 campioni del set cieco contengono un evento di log cancellato e il plugin lo segnala; in 32 non fa parte della tecnica dell'etichetta. In tutti e 34, come nei 26 del set visto, la cancellazione è il primo evento del file, prima dell'attacco: è la pulizia fatta da chi ha preparato il campione, e su una macchina compromessa vera non ci sarebbe. Per avvicinarsi alla situazione reale, se il campione non riguarda proprio la cancellazione dei log quel segnale non conta: i numeri in grassetto sono questi, quelli grezzi restano accanto.
 
 |  | Set cieco (mai visto) | Set visto |
 | --- | --- | --- |
